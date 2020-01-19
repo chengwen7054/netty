@@ -15,11 +15,13 @@
  */
 package io.netty.channel;
 
+import java.io.IOException;
+import java.net.InetSocketAddress;
 import java.net.SocketAddress;
+import java.nio.channels.ClosedChannelException;
 
+import io.netty.util.NetUtil;
 import org.junit.Test;
-import org.mockito.invocation.InvocationOnMock;
-import org.mockito.stubbing.Answer;
 
 import static org.junit.Assert.*;
 import static org.mockito.Mockito.*;
@@ -31,12 +33,13 @@ public class AbstractChannelTest {
         EventLoop eventLoop = mock(EventLoop.class);
         // This allows us to have a single-threaded test
         when(eventLoop.inEventLoop()).thenReturn(true);
+        when(eventLoop.unsafe()).thenReturn(mock(EventLoop.Unsafe.class));
 
-        TestChannel channel = new TestChannel();
-        ChannelInboundHandler handler = mock(ChannelInboundHandler.class);
+        TestChannel channel = new TestChannel(eventLoop);
+        ChannelHandler handler = mock(ChannelHandler.class);
         channel.pipeline().addLast(handler);
 
-        registerChannel(eventLoop, channel);
+        registerChannel(channel);
 
         verify(handler).handlerAdded(any(ChannelHandlerContext.class));
         verify(handler).channelRegistered(any(ChannelHandlerContext.class));
@@ -48,24 +51,22 @@ public class AbstractChannelTest {
         final EventLoop eventLoop = mock(EventLoop.class);
         // This allows us to have a single-threaded test
         when(eventLoop.inEventLoop()).thenReturn(true);
+        when(eventLoop.unsafe()).thenReturn(mock(EventLoop.Unsafe.class));
 
-        doAnswer(new Answer() {
-            @Override
-            public Object answer(InvocationOnMock invocationOnMock) throws Throwable {
-                ((Runnable) invocationOnMock.getArgument(0)).run();
-                return null;
-            }
+        doAnswer(invocationOnMock -> {
+            ((Runnable) invocationOnMock.getArgument(0)).run();
+            return null;
         }).when(eventLoop).execute(any(Runnable.class));
 
-        final TestChannel channel = new TestChannel();
-        ChannelInboundHandler handler = mock(ChannelInboundHandler.class);
+        final TestChannel channel = new TestChannel(eventLoop);
+        ChannelHandler handler = mock(ChannelHandler.class);
 
         channel.pipeline().addLast(handler);
 
-        registerChannel(eventLoop, channel);
+        registerChannel(channel);
         channel.unsafe().deregister(new DefaultChannelPromise(channel));
 
-        registerChannel(eventLoop, channel);
+        registerChannel(channel);
 
         verify(handler).handlerAdded(any(ChannelHandlerContext.class));
 
@@ -77,32 +78,101 @@ public class AbstractChannelTest {
 
     @Test
     public void ensureDefaultChannelId() {
-        TestChannel channel = new TestChannel();
+        final EventLoop eventLoop = mock(EventLoop.class);
+        TestChannel channel = new TestChannel(eventLoop);
         final ChannelId channelId = channel.id();
         assertTrue(channelId instanceof DefaultChannelId);
     }
 
-    private static void registerChannel(EventLoop eventLoop, Channel channel) throws Exception {
+    @Test
+    public void testClosedChannelExceptionCarryIOException() throws Exception {
+        final IOException ioException = new IOException();
+        final EventLoop eventLoop = mock(EventLoop.class);
+        // This allows us to have a single-threaded test
+        when(eventLoop.inEventLoop()).thenReturn(true);
+        when(eventLoop.unsafe()).thenReturn(mock(EventLoop.Unsafe.class));
+
+        doAnswer(invocationOnMock -> {
+            ((Runnable) invocationOnMock.getArgument(0)).run();
+            return null;
+        }).when(eventLoop).execute(any(Runnable.class));
+
+        final Channel channel = new TestChannel(eventLoop) {
+            private boolean open = true;
+            private boolean active;
+
+            @Override
+            protected AbstractUnsafe newUnsafe() {
+                return new AbstractUnsafe() {
+                    @Override
+                    public void connect(
+                            SocketAddress remoteAddress, SocketAddress localAddress, ChannelPromise promise) {
+                        active = true;
+                        promise.setSuccess();
+                    }
+                };
+            }
+
+            @Override
+            protected void doClose()  {
+                active = false;
+                open = false;
+            }
+
+            @Override
+            protected void doWrite(ChannelOutboundBuffer in) throws Exception {
+                throw ioException;
+            }
+
+            @Override
+            public boolean isOpen() {
+                return open;
+            }
+
+            @Override
+            public boolean isActive() {
+                return active;
+            }
+        };
+
+        try {
+            registerChannel(channel);
+            channel.connect(new InetSocketAddress(NetUtil.LOCALHOST, 8888)).sync();
+            assertSame(ioException, channel.writeAndFlush("").await().cause());
+
+            assertClosedChannelException(channel.writeAndFlush(""), ioException);
+            assertClosedChannelException(channel.write(""), ioException);
+            assertClosedChannelException(channel.bind(new InetSocketAddress(NetUtil.LOCALHOST, 8888)), ioException);
+        } finally {
+            channel.close();
+        }
+    }
+
+    private static void assertClosedChannelException(ChannelFuture future, IOException expected)
+            throws InterruptedException {
+        Throwable cause = future.await().cause();
+        assertTrue(cause instanceof ClosedChannelException);
+        assertSame(expected, cause.getCause());
+    }
+
+    private static void registerChannel(Channel channel) throws Exception {
         DefaultChannelPromise future = new DefaultChannelPromise(channel);
-        channel.unsafe().register(eventLoop, future);
+        channel.register(future);
         future.sync(); // Cause any exceptions to be thrown
     }
 
     private static class TestChannel extends AbstractChannel {
         private static final ChannelMetadata TEST_METADATA = new ChannelMetadata(false);
-        private class TestUnsafe extends AbstractUnsafe {
 
-            @Override
-            public void connect(SocketAddress remoteAddress, SocketAddress localAddress, ChannelPromise promise) { }
-        }
+        private final ChannelConfig config = new DefaultChannelConfig(this);
 
-        public TestChannel() {
-            super(null);
+        TestChannel(EventLoop eventLoop) {
+            super(null, eventLoop);
         }
 
         @Override
         public ChannelConfig config() {
-            return new DefaultChannelConfig(this);
+            return config;
         }
 
         @Override
@@ -122,12 +192,12 @@ public class AbstractChannelTest {
 
         @Override
         protected AbstractUnsafe newUnsafe() {
-            return new TestUnsafe();
-        }
-
-        @Override
-        protected boolean isCompatible(EventLoop loop) {
-            return true;
+            return new AbstractUnsafe() {
+                @Override
+                public void connect(SocketAddress remoteAddress, SocketAddress localAddress, ChannelPromise promise) {
+                    promise.setFailure(new UnsupportedOperationException());
+                }
+            };
         }
 
         @Override
@@ -141,16 +211,16 @@ public class AbstractChannelTest {
         }
 
         @Override
-        protected void doBind(SocketAddress localAddress) throws Exception { }
+        protected void doBind(SocketAddress localAddress) { }
 
         @Override
-        protected void doDisconnect() throws Exception { }
+        protected void doDisconnect() { }
 
         @Override
-        protected void doClose() throws Exception { }
+        protected void doClose() { }
 
         @Override
-        protected void doBeginRead() throws Exception { }
+        protected void doBeginRead() { }
 
         @Override
         protected void doWrite(ChannelOutboundBuffer in) throws Exception { }

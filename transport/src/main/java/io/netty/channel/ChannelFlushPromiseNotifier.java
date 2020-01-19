@@ -15,6 +15,9 @@
  */
 package io.netty.channel;
 
+import static io.netty.util.internal.ObjectUtil.checkPositiveOrZero;
+import static java.util.Objects.requireNonNull;
+
 import java.util.ArrayDeque;
 import java.util.Queue;
 
@@ -25,7 +28,7 @@ import java.util.Queue;
 public final class ChannelFlushPromiseNotifier {
 
     private long writeCounter;
-    private final Queue<FlushCheckpoint> flushCheckpoints = new ArrayDeque<FlushCheckpoint>();
+    private final Queue<FlushCheckpoint> flushCheckpoints = new ArrayDeque<>();
     private final boolean tryNotify;
 
     /**
@@ -61,12 +64,8 @@ public final class ChannelFlushPromiseNotifier {
      * {@code pendingDataSize} was reached.
      */
     public ChannelFlushPromiseNotifier add(ChannelPromise promise, long pendingDataSize) {
-        if (promise == null) {
-            throw new NullPointerException("promise");
-        }
-        if (pendingDataSize < 0) {
-            throw new IllegalArgumentException("pendingDataSize must be >= 0 but was " + pendingDataSize);
-        }
+        requireNonNull(promise, "promise");
+        checkPositiveOrZero(pendingDataSize, "pendingDataSize");
         long checkpoint = writeCounter + pendingDataSize;
         if (promise instanceof FlushCheckpoint) {
             FlushCheckpoint cp = (FlushCheckpoint) promise;
@@ -81,9 +80,7 @@ public final class ChannelFlushPromiseNotifier {
      * Increase the current write counter by the given delta
      */
     public ChannelFlushPromiseNotifier increaseWriteCounter(long delta) {
-        if (delta < 0) {
-            throw new IllegalArgumentException("delta must be >= 0 but was " + delta);
-        }
+        checkPositiveOrZero(delta, "delta");
         writeCounter += delta;
         return this;
     }

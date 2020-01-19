@@ -31,6 +31,7 @@
  */
 package io.netty.handler.codec.http2;
 
+import io.netty.util.internal.ResourcesUtil;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
@@ -38,9 +39,9 @@ import org.junit.runners.Parameterized.Parameters;
 
 import java.io.File;
 import java.io.InputStream;
-import java.net.URL;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Objects;
 
 @RunWith(Parameterized.class)
 public class HpackTest {
@@ -56,13 +57,10 @@ public class HpackTest {
 
     @Parameters(name = "{0}")
     public static Collection<Object[]> data() {
-        URL url = HpackTest.class.getResource(TEST_DIR);
-        File[] files = new File(url.getFile()).listFiles();
-        if (files == null) {
-            throw new NullPointerException("files");
-        }
+        File[] files = ResourcesUtil.getFile(HpackTest.class, TEST_DIR).listFiles();
+        Objects.requireNonNull(files, "files");
 
-        ArrayList<Object[]> data = new ArrayList<Object[]>();
+        ArrayList<Object[]> data = new ArrayList<>();
         for (File file : files) {
             data.add(new Object[]{file.getName()});
         }

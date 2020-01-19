@@ -15,6 +15,9 @@
 */
 package io.netty.channel.sctp;
 
+import static io.netty.util.internal.ObjectUtil.checkPositiveOrZero;
+import static java.util.Objects.requireNonNull;
+
 import com.sun.nio.sctp.SctpServerChannel;
 import com.sun.nio.sctp.SctpStandardSocketOptions;
 import io.netty.buffer.ByteBufAllocator;
@@ -43,9 +46,7 @@ public class DefaultSctpServerChannelConfig extends DefaultChannelConfig impleme
     public DefaultSctpServerChannelConfig(
             io.netty.channel.sctp.SctpServerChannel channel, SctpServerChannel javaChannel) {
         super(channel);
-        if (javaChannel == null) {
-            throw new NullPointerException("javaChannel");
-        }
+        requireNonNull(javaChannel, "javaChannel");
         this.javaChannel = javaChannel;
     }
 
@@ -152,9 +153,7 @@ public class DefaultSctpServerChannelConfig extends DefaultChannelConfig impleme
 
     @Override
     public SctpServerChannelConfig setBacklog(int backlog) {
-        if (backlog < 0) {
-            throw new IllegalArgumentException("backlog: " + backlog);
-        }
+        checkPositiveOrZero(backlog, "backlog");
         this.backlog = backlog;
         return this;
     }

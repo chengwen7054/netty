@@ -24,10 +24,12 @@ import io.netty.channel.ChannelOutboundBuffer;
 import io.netty.channel.ChannelPipeline;
 import io.netty.channel.ChannelPromise;
 import io.netty.channel.DefaultAddressedEnvelope;
+import io.netty.channel.EventLoop;
 import io.netty.channel.socket.DatagramChannel;
 import io.netty.channel.socket.DatagramChannelConfig;
 import io.netty.channel.socket.DatagramPacket;
 import io.netty.channel.unix.DatagramSocketAddress;
+import io.netty.channel.unix.Errors;
 import io.netty.channel.unix.IovArray;
 import io.netty.channel.unix.UnixChannelUtil;
 import io.netty.util.internal.StringUtil;
@@ -37,13 +39,13 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.NetworkInterface;
+import java.net.PortUnreachableException;
 import java.net.SocketAddress;
 import java.net.SocketException;
 import java.nio.ByteBuffer;
-import java.util.ArrayList;
-import java.util.List;
 
 import static io.netty.channel.kqueue.BsdSocket.newSocketDgram;
+import static java.util.Objects.requireNonNull;
 
 @UnstableApi
 public final class KQueueDatagramChannel extends AbstractKQueueChannel implements DatagramChannel {
@@ -58,17 +60,17 @@ public final class KQueueDatagramChannel extends AbstractKQueueChannel implement
     private volatile boolean connected;
     private final KQueueDatagramChannelConfig config;
 
-    public KQueueDatagramChannel() {
-        super(null, newSocketDgram(), false);
+    public KQueueDatagramChannel(EventLoop eventLoop) {
+        super(null, eventLoop, newSocketDgram(), false);
         config = new KQueueDatagramChannelConfig(this);
     }
 
-    public KQueueDatagramChannel(int fd) {
-        this(new BsdSocket(fd), true);
+    public KQueueDatagramChannel(EventLoop eventLoop, int fd) {
+        this(eventLoop, new BsdSocket(fd), true);
     }
 
-    KQueueDatagramChannel(BsdSocket socket, boolean active) {
-        super(null, socket, active);
+    KQueueDatagramChannel(EventLoop eventLoop, BsdSocket socket, boolean active) {
+        super(null, eventLoop, socket, active);
         config = new KQueueDatagramChannelConfig(this);
     }
 
@@ -139,14 +141,8 @@ public final class KQueueDatagramChannel extends AbstractKQueueChannel implement
     public ChannelFuture joinGroup(
             final InetAddress multicastAddress, final NetworkInterface networkInterface,
             final InetAddress source, final ChannelPromise promise) {
-
-        if (multicastAddress == null) {
-            throw new NullPointerException("multicastAddress");
-        }
-
-        if (networkInterface == null) {
-            throw new NullPointerException("networkInterface");
-        }
+        requireNonNull(multicastAddress, "multicastAddress");
+        requireNonNull(networkInterface, "networkInterface");
 
         promise.setFailure(new UnsupportedOperationException("Multicast not supported"));
         return promise;
@@ -191,12 +187,8 @@ public final class KQueueDatagramChannel extends AbstractKQueueChannel implement
     public ChannelFuture leaveGroup(
             final InetAddress multicastAddress, final NetworkInterface networkInterface, final InetAddress source,
             final ChannelPromise promise) {
-        if (multicastAddress == null) {
-            throw new NullPointerException("multicastAddress");
-        }
-        if (networkInterface == null) {
-            throw new NullPointerException("networkInterface");
-        }
+        requireNonNull(multicastAddress, "multicastAddress");
+        requireNonNull(networkInterface, "networkInterface");
 
         promise.setFailure(new UnsupportedOperationException("Multicast not supported"));
 
@@ -214,16 +206,9 @@ public final class KQueueDatagramChannel extends AbstractKQueueChannel implement
     public ChannelFuture block(
             final InetAddress multicastAddress, final NetworkInterface networkInterface,
             final InetAddress sourceToBlock, final ChannelPromise promise) {
-        if (multicastAddress == null) {
-            throw new NullPointerException("multicastAddress");
-        }
-        if (sourceToBlock == null) {
-            throw new NullPointerException("sourceToBlock");
-        }
-
-        if (networkInterface == null) {
-            throw new NullPointerException("networkInterface");
-        }
+        requireNonNull(multicastAddress, "multicastAddress");
+        requireNonNull(sourceToBlock, "sourceToBlock");
+        requireNonNull(networkInterface, "networkInterface");
         promise.setFailure(new UnsupportedOperationException("Multicast not supported"));
         return promise;
     }
@@ -322,8 +307,8 @@ public final class KQueueDatagramChannel extends AbstractKQueueChannel implement
                         remoteAddress.getAddress(), remoteAddress.getPort());
             }
         } else if (data.nioBufferCount() > 1) {
-            IovArray array = ((KQueueEventLoop) eventLoop()).cleanArray();
-            array.add(data);
+            IovArray array = registration().cleanArray();
+            array.add(data, data.readerIndex(), data.readableBytes());
             int cnt = array.count();
             assert cnt != 0;
 
@@ -368,7 +353,7 @@ public final class KQueueDatagramChannel extends AbstractKQueueChannel implement
 
                 ByteBuf content = (ByteBuf) e.content();
                 return UnixChannelUtil.isBufferCopyNeededForWrite(content)?
-                        new DefaultAddressedEnvelope<ByteBuf, InetSocketAddress>(
+                        new DefaultAddressedEnvelope<>(
                                 newDirectBuffer(e, content), (InetSocketAddress) e.recipient()) : e;
             }
         }
@@ -386,6 +371,7 @@ public final class KQueueDatagramChannel extends AbstractKQueueChannel implement
     protected void doDisconnect() throws Exception {
         socket.disconnect();
         connected = active = false;
+        resetCachedAddresses();
     }
 
     @Override
@@ -420,41 +406,72 @@ public final class KQueueDatagramChannel extends AbstractKQueueChannel implement
 
             Throwable exception = null;
             try {
-                ByteBuf data = null;
+                ByteBuf byteBuf = null;
                 try {
+                    boolean connected = isConnected();
                     do {
-                        data = allocHandle.allocate(allocator);
-                        allocHandle.attemptedBytesRead(data.writableBytes());
-                        final DatagramSocketAddress remoteAddress;
-                        if (data.hasMemoryAddress()) {
-                            // has a memory address so use optimized call
-                            remoteAddress = socket.recvFromAddress(data.memoryAddress(), data.writerIndex(),
-                                    data.capacity());
-                        } else {
-                            ByteBuffer nioData = data.internalNioBuffer(data.writerIndex(), data.writableBytes());
-                            remoteAddress = socket.recvFrom(nioData, nioData.position(), nioData.limit());
-                        }
+                        byteBuf = allocHandle.allocate(allocator);
+                        allocHandle.attemptedBytesRead(byteBuf.writableBytes());
 
-                        if (remoteAddress == null) {
-                            allocHandle.lastBytesRead(-1);
-                            data.release();
-                            data = null;
-                            break;
+                        final DatagramPacket packet;
+                        if (connected) {
+                            try {
+                                allocHandle.lastBytesRead(doReadBytes(byteBuf));
+                            } catch (Errors.NativeIoException e) {
+                                // We need to correctly translate connect errors to match NIO behaviour.
+                                if (e.expectedErr() == Errors.ERROR_ECONNREFUSED_NEGATIVE) {
+                                    PortUnreachableException error = new PortUnreachableException(e.getMessage());
+                                    error.initCause(e);
+                                    throw error;
+                                }
+                                throw e;
+                            }
+                            if (allocHandle.lastBytesRead() <= 0) {
+                                // nothing was read, release the buffer.
+                                byteBuf.release();
+                                byteBuf = null;
+                                break;
+                            }
+                            packet = new DatagramPacket(byteBuf,
+                                    (InetSocketAddress) localAddress(), (InetSocketAddress) remoteAddress());
+                        } else {
+                            final DatagramSocketAddress remoteAddress;
+                            if (byteBuf.hasMemoryAddress()) {
+                                // has a memory address so use optimized call
+                                remoteAddress = socket.recvFromAddress(byteBuf.memoryAddress(), byteBuf.writerIndex(),
+                                        byteBuf.capacity());
+                            } else {
+                                ByteBuffer nioData = byteBuf.internalNioBuffer(
+                                        byteBuf.writerIndex(), byteBuf.writableBytes());
+                                remoteAddress = socket.recvFrom(nioData, nioData.position(), nioData.limit());
+                            }
+
+                            if (remoteAddress == null) {
+                                allocHandle.lastBytesRead(-1);
+                                byteBuf.release();
+                                byteBuf = null;
+                                break;
+                            }
+                            InetSocketAddress localAddress = remoteAddress.localAddress();
+                            if (localAddress == null) {
+                                localAddress = (InetSocketAddress) localAddress();
+                            }
+                            allocHandle.lastBytesRead(remoteAddress.receivedAmount());
+                            byteBuf.writerIndex(byteBuf.writerIndex() + allocHandle.lastBytesRead());
+
+                            packet = new DatagramPacket(byteBuf, localAddress, remoteAddress);
                         }
 
                         allocHandle.incMessagesRead(1);
-                        allocHandle.lastBytesRead(remoteAddress.receivedAmount());
-                        data.writerIndex(data.writerIndex() + allocHandle.lastBytesRead());
 
                         readPending = false;
-                        pipeline.fireChannelRead(
-                                new DatagramPacket(data, (InetSocketAddress) localAddress(), remoteAddress));
+                        pipeline.fireChannelRead(packet);
 
-                        data = null;
+                        byteBuf = null;
                     } while (allocHandle.continueReading());
                 } catch (Throwable t) {
-                    if (data != null) {
-                        data.release();
+                    if (byteBuf != null) {
+                        byteBuf.release();
                     }
                     exception = t;
                 }
@@ -464,6 +481,8 @@ public final class KQueueDatagramChannel extends AbstractKQueueChannel implement
 
                 if (exception != null) {
                     pipeline.fireExceptionCaught(exception);
+                } else {
+                    readIfIsAutoRead();
                 }
             } finally {
                 readReadyFinally(config);

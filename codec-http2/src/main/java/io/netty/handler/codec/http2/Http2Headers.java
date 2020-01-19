@@ -62,7 +62,7 @@ public interface Http2Headers extends Headers<CharSequence, CharSequence, Http2H
 
         private final AsciiString value;
         private final boolean requestOnly;
-        private static final CharSequenceMap<PseudoHeaderName> PSEUDO_HEADERS = new CharSequenceMap<PseudoHeaderName>();
+        private static final CharSequenceMap<PseudoHeaderName> PSEUDO_HEADERS = new CharSequenceMap<>();
 
         static {
             for (PseudoHeaderName pseudoHeader : PseudoHeaderName.values()) {
@@ -136,7 +136,7 @@ public interface Http2Headers extends Headers<CharSequence, CharSequence, Http2H
     Iterator<CharSequence> valueIterator(CharSequence name);
 
     /**
-     * Sets the {@link PseudoHeaderName#METHOD} header or {@code null} if there is no such header
+     * Sets the {@link PseudoHeaderName#METHOD} header
      */
     Http2Headers method(CharSequence value);
 

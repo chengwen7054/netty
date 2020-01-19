@@ -49,7 +49,7 @@ public final class HpackBenchmarkUtil {
         final HpackHeadersSize size;
         final boolean limitToAscii;
 
-        public HeadersKey(HpackHeadersSize size, boolean limitToAscii) {
+        HeadersKey(HpackHeadersSize size, boolean limitToAscii) {
             this.size = size;
             this.limitToAscii = limitToAscii;
         }
@@ -87,7 +87,7 @@ public final class HpackBenchmarkUtil {
 
     static {
         HpackHeadersSize[] sizes = HpackHeadersSize.values();
-        headersMap = new HashMap<HeadersKey, List<HpackHeader>>(sizes.length * 2);
+        headersMap = new HashMap<>(sizes.length * 2);
         for (HpackHeadersSize size : sizes) {
             HeadersKey key = new HeadersKey(size, true);
             headersMap.put(key, key.newHeaders());

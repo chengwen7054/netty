@@ -20,7 +20,8 @@ import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.EventLoopGroup;
-import io.netty.channel.nio.NioEventLoopGroup;
+import io.netty.channel.MultithreadEventLoopGroup;
+import io.netty.channel.nio.NioHandler;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.handler.codec.http2.Http2SecurityUtil;
 import io.netty.handler.logging.LogLevel;
@@ -38,7 +39,7 @@ import io.netty.handler.ssl.SupportedCipherSuiteFilter;
 import io.netty.handler.ssl.util.SelfSignedCertificate;
 
 /**
- * A HTTP/2 Server that responds to requests with a Hello World. Once started, you can test the
+ * An HTTP/2 Server that responds to requests with a Hello World. Once started, you can test the
  * server with the example client.
  *
  * <p>This example is making use of the "multiplexing" http2 API, where streams are mapped to child
@@ -74,7 +75,7 @@ public final class Http2Server {
             sslCtx = null;
         }
         // Configure the server.
-        EventLoopGroup group = new NioEventLoopGroup();
+        EventLoopGroup group = new MultithreadEventLoopGroup(NioHandler.newFactory());
         try {
             ServerBootstrap b = new ServerBootstrap();
             b.option(ChannelOption.SO_BACKLOG, 1024);

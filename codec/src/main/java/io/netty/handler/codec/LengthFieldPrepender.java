@@ -15,10 +15,12 @@
  */
 package io.netty.handler.codec;
 
+import static io.netty.util.internal.ObjectUtil.checkPositiveOrZero;
+import static java.util.Objects.requireNonNull;
+
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandler.Sharable;
 import io.netty.channel.ChannelHandlerContext;
-import io.netty.util.internal.ObjectUtil;
 
 import java.nio.ByteOrder;
 import java.util.List;
@@ -148,7 +150,7 @@ public class LengthFieldPrepender extends MessageToMessageEncoder<ByteBuf> {
                     "lengthFieldLength must be either 1, 2, 3, 4, or 8: " +
                     lengthFieldLength);
         }
-        ObjectUtil.checkNotNull(byteOrder, "byteOrder");
+        requireNonNull(byteOrder, "byteOrder");
 
         this.byteOrder = byteOrder;
         this.lengthFieldLength = lengthFieldLength;
@@ -163,10 +165,7 @@ public class LengthFieldPrepender extends MessageToMessageEncoder<ByteBuf> {
             length += lengthFieldLength;
         }
 
-        if (length < 0) {
-            throw new IllegalArgumentException(
-                    "Adjusted frame length (" + length + ") is less than zero");
-        }
+        checkPositiveOrZero(length, "length");
 
         switch (lengthFieldLength) {
         case 1:

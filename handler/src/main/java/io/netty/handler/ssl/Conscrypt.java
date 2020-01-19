@@ -15,8 +15,6 @@
  */
 package io.netty.handler.ssl;
 
-import io.netty.util.internal.PlatformDependent;
-
 import javax.net.ssl.SSLEngine;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -28,6 +26,7 @@ final class Conscrypt {
     // This class exists to avoid loading other conscrypt related classes using features only available in JDK8+,
     // because we need to maintain JDK6+ runtime compatibility.
     private static final Method IS_CONSCRYPT_SSLENGINE = loadIsConscryptEngine();
+    private static final boolean CAN_INSTANCE_PROVIDER = canInstanceProvider();
 
     private static Method loadIsConscryptEngine() {
         try {
@@ -40,11 +39,22 @@ final class Conscrypt {
         }
     }
 
+    private static boolean canInstanceProvider() {
+        try {
+            Class<?> providerClass = Class.forName("org.conscrypt.OpenSSLProvider", true,
+                    ConscryptAlpnSslEngine.class.getClassLoader());
+            providerClass.newInstance();
+            return true;
+        } catch (Throwable ignore) {
+            return false;
+        }
+    }
+
     /**
      * Indicates whether or not conscrypt is available on the current system.
      */
     static boolean isAvailable() {
-        return IS_CONSCRYPT_SSLENGINE != null && PlatformDependent.javaVersion() >= 8;
+        return CAN_INSTANCE_PROVIDER && IS_CONSCRYPT_SSLENGINE != null;
     }
 
     static boolean isEngineSupported(SSLEngine engine) {

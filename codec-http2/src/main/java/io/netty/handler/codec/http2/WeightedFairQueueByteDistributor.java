@@ -19,7 +19,6 @@ import io.netty.util.collection.IntObjectHashMap;
 import io.netty.util.collection.IntObjectMap;
 import io.netty.util.internal.DefaultPriorityQueue;
 import io.netty.util.internal.EmptyPriorityQueue;
-import io.netty.util.internal.MathUtil;
 import io.netty.util.internal.PriorityQueue;
 import io.netty.util.internal.PriorityQueueNode;
 import io.netty.util.internal.SystemPropertyUtil;
@@ -37,6 +36,8 @@ import static io.netty.handler.codec.http2.Http2CodecUtil.DEFAULT_PRIORITY_WEIGH
 import static io.netty.handler.codec.http2.Http2CodecUtil.streamableBytes;
 import static io.netty.handler.codec.http2.Http2Error.INTERNAL_ERROR;
 import static io.netty.handler.codec.http2.Http2Exception.connectionError;
+import static io.netty.util.internal.ObjectUtil.checkPositive;
+import static io.netty.util.internal.ObjectUtil.checkPositiveOrZero;
 import static java.lang.Integer.MAX_VALUE;
 import static java.lang.Math.max;
 import static java.lang.Math.min;
@@ -96,16 +97,15 @@ public final class WeightedFairQueueByteDistributor implements StreamByteDistrib
     }
 
     public WeightedFairQueueByteDistributor(Http2Connection connection, int maxStateOnlySize) {
-        if (maxStateOnlySize < 0) {
-            throw new IllegalArgumentException("maxStateOnlySize: " + maxStateOnlySize + " (expected: >0)");
-        } else if (maxStateOnlySize == 0) {
+        checkPositiveOrZero(maxStateOnlySize, "maxStateOnlySize");
+        if (maxStateOnlySize == 0) {
             stateOnlyMap = IntCollections.emptyMap();
             stateOnlyRemovalQueue = EmptyPriorityQueue.instance();
         } else {
             stateOnlyMap = new IntObjectHashMap<State>(maxStateOnlySize);
             // +2 because we may exceed the limit by 2 if a new dependency has no associated Http2Stream object. We need
             // to create the State objects to put them into the dependency tree, which then impacts priority.
-            stateOnlyRemovalQueue = new DefaultPriorityQueue<State>(StateOnlyComparator.INSTANCE, maxStateOnlySize + 2);
+            stateOnlyRemovalQueue = new DefaultPriorityQueue<>(StateOnlyComparator.INSTANCE, maxStateOnlySize + 2);
         }
         this.maxStateOnlySize = maxStateOnlySize;
 
@@ -122,7 +122,7 @@ public final class WeightedFairQueueByteDistributor implements StreamByteDistrib
                 if (state == null) {
                     state = new State(stream);
                     // Only the stream which was just added will change parents. So we only need an array of size 1.
-                    List<ParentChangedEvent> events = new ArrayList<ParentChangedEvent>(1);
+                    List<ParentChangedEvent> events = new ArrayList<>(1);
                     connectionState.takeChild(state, false, events);
                     notifyParentChanged(events);
                 } else {
@@ -221,7 +221,7 @@ public final class WeightedFairQueueByteDistributor implements StreamByteDistrib
             stateOnlyRemovalQueue.add(newParent);
             stateOnlyMap.put(parentStreamId, newParent);
             // Only the stream which was just added will change parents. So we only need an array of size 1.
-            List<ParentChangedEvent> events = new ArrayList<ParentChangedEvent>(1);
+            List<ParentChangedEvent> events = new ArrayList<>(1);
             connectionState.takeChild(newParent, false, events);
             notifyParentChanged(events);
         }
@@ -236,10 +236,10 @@ public final class WeightedFairQueueByteDistributor implements StreamByteDistrib
         if (newParent != state.parent || (exclusive && newParent.children.size() != 1)) {
             final List<ParentChangedEvent> events;
             if (newParent.isDescendantOf(state)) {
-                events = new ArrayList<ParentChangedEvent>(2 + (exclusive ? newParent.children.size() : 0));
+                events = new ArrayList<>(2 + (exclusive ? newParent.children.size() : 0));
                 state.parent.takeChild(newParent, false, events);
             } else {
-                events = new ArrayList<ParentChangedEvent>(1 + (exclusive ? newParent.children.size() : 0));
+                events = new ArrayList<>(1 + (exclusive ? newParent.children.size() : 0));
             }
             newParent.takeChild(state, exclusive, events);
             notifyParentChanged(events);
@@ -281,9 +281,7 @@ public final class WeightedFairQueueByteDistributor implements StreamByteDistrib
      * @param allocationQuantum the amount of bytes that will be allocated to each stream. Must be &gt; 0.
      */
     public void allocationQuantum(int allocationQuantum) {
-        if (allocationQuantum <= 0) {
-            throw new IllegalArgumentException("allocationQuantum must be > 0");
-        }
+        checkPositive(allocationQuantum, "allocationQuantum");
         this.allocationQuantum = allocationQuantum;
     }
 
@@ -432,7 +430,7 @@ public final class WeightedFairQueueByteDistributor implements StreamByteDistrib
 
         @Override
         public int compare(State o1, State o2) {
-            return MathUtil.compare(o1.pseudoTimeToWrite, o2.pseudoTimeToWrite);
+            return Long.compare(o1.pseudoTimeToWrite, o2.pseudoTimeToWrite);
         }
     }
 
@@ -487,7 +485,7 @@ public final class WeightedFairQueueByteDistributor implements StreamByteDistrib
         State(int streamId, Http2Stream stream, int initialSize) {
             this.stream = stream;
             this.streamId = streamId;
-            pseudoTimeQueue = new DefaultPriorityQueue<State>(StatePseudoTimeComparator.INSTANCE, initialSize);
+            pseudoTimeQueue = new DefaultPriorityQueue<>(StatePseudoTimeComparator.INSTANCE, initialSize);
         }
 
         boolean isDescendantOf(State state) {
@@ -547,7 +545,7 @@ public final class WeightedFairQueueByteDistributor implements StreamByteDistrib
          */
         void removeChild(State child) {
             if (children.remove(child.streamId) != null) {
-                List<ParentChangedEvent> events = new ArrayList<ParentChangedEvent>(1 + child.children.size());
+                List<ParentChangedEvent> events = new ArrayList<>(1 + child.children.size());
                 events.add(new ParentChangedEvent(child, child.parent));
                 child.setParent(null);
 

@@ -18,10 +18,11 @@ package io.netty.handler.codec.http;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
+import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
-import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.embedded.EmbeddedChannel;
 import io.netty.handler.codec.CodecException;
+import io.netty.handler.codec.DecoderResult;
 import io.netty.handler.codec.EncoderException;
 import io.netty.handler.codec.MessageToByteEncoder;
 import io.netty.util.CharsetUtil;
@@ -40,7 +41,7 @@ public class HttpContentEncoderTest {
 
     private static final class TestEncoder extends HttpContentEncoder {
         @Override
-        protected Result beginEncode(HttpResponse headers, String acceptEncoding) {
+        protected Result beginEncode(HttpResponse httpResponse, String acceptEncoding) {
             return new Result("test", new EmbeddedChannel(new MessageToByteEncoder<ByteBuf>() {
                 @Override
                 protected void encode(ChannelHandlerContext ctx, ByteBuf in, ByteBuf out) throws Exception {
@@ -156,6 +157,7 @@ public class HttpContentEncoderTest {
         assertThat(chunk.content().isReadable(), is(false));
         assertThat(chunk, is(instanceOf(LastHttpContent.class)));
         assertEquals("Netty", ((LastHttpContent) chunk).trailingHeaders().get(of("X-Test")));
+        assertEquals(DecoderResult.SUCCESS, res.decoderResult());
         chunk.release();
 
         assertThat(ch.readOutbound(), is(nullValue()));
@@ -285,6 +287,7 @@ public class HttpContentEncoderTest {
         assertThat(res.content().readableBytes(), is(0));
         assertThat(res.content().toString(CharsetUtil.US_ASCII), is(""));
         assertEquals("Netty", res.trailingHeaders().get(of("X-Test")));
+        assertEquals(DecoderResult.SUCCESS, res.decoderResult());
         assertThat(ch.readOutbound(), is(nullValue()));
     }
 
@@ -392,9 +395,9 @@ public class HttpContentEncoderTest {
     public void testCleanupThrows() {
         HttpContentEncoder encoder = new HttpContentEncoder() {
             @Override
-            protected Result beginEncode(HttpResponse headers, String acceptEncoding) throws Exception {
+            protected Result beginEncode(HttpResponse httpResponse, String acceptEncoding) throws Exception {
                 return new Result("myencoding", new EmbeddedChannel(
-                        new ChannelInboundHandlerAdapter() {
+                        new ChannelHandler() {
                     @Override
                     public void channelInactive(ChannelHandlerContext ctx) throws Exception {
                         ctx.fireExceptionCaught(new EncoderException());
@@ -405,11 +408,11 @@ public class HttpContentEncoderTest {
         };
 
         final AtomicBoolean channelInactiveCalled = new AtomicBoolean();
-        EmbeddedChannel channel = new EmbeddedChannel(encoder, new ChannelInboundHandlerAdapter() {
+        EmbeddedChannel channel = new EmbeddedChannel(encoder, new ChannelHandler() {
             @Override
             public void channelInactive(ChannelHandlerContext ctx) throws Exception {
                 assertTrue(channelInactiveCalled.compareAndSet(false, true));
-                super.channelInactive(ctx);
+                ctx.fireChannelInactive();
             }
         });
         assertTrue(channel.writeInbound(new DefaultFullHttpRequest(HttpVersion.HTTP_1_1, HttpMethod.GET, "/")));

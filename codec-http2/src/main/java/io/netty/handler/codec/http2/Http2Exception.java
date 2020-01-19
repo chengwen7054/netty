@@ -15,6 +15,7 @@
 
 package io.netty.handler.codec.http2;
 
+import io.netty.util.internal.PlatformDependent;
 import io.netty.util.internal.UnstableApi;
 
 import java.util.ArrayList;
@@ -22,7 +23,7 @@ import java.util.Iterator;
 import java.util.List;
 
 import static io.netty.handler.codec.http2.Http2CodecUtil.CONNECTION_STREAM_ID;
-import static io.netty.util.internal.ObjectUtil.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Exception thrown when an HTTP/2 error was encountered.
@@ -38,8 +39,8 @@ public class Http2Exception extends Exception {
     }
 
     public Http2Exception(Http2Error error, ShutdownHint shutdownHint) {
-        this.error = checkNotNull(error, "error");
-        this.shutdownHint = checkNotNull(shutdownHint, "shutdownHint");
+        this.error = requireNonNull(error, "error");
+        this.shutdownHint = requireNonNull(shutdownHint, "shutdownHint");
     }
 
     public Http2Exception(Http2Error error, String message) {
@@ -48,8 +49,8 @@ public class Http2Exception extends Exception {
 
     public Http2Exception(Http2Error error, String message, ShutdownHint shutdownHint) {
         super(message);
-        this.error = checkNotNull(error, "error");
-        this.shutdownHint = checkNotNull(shutdownHint, "shutdownHint");
+        this.error = requireNonNull(error, "error");
+        this.shutdownHint = requireNonNull(shutdownHint, "shutdownHint");
     }
 
     public Http2Exception(Http2Error error, String message, Throwable cause) {
@@ -58,8 +59,22 @@ public class Http2Exception extends Exception {
 
     public Http2Exception(Http2Error error, String message, Throwable cause, ShutdownHint shutdownHint) {
         super(message, cause);
-        this.error = checkNotNull(error, "error");
-        this.shutdownHint = checkNotNull(shutdownHint, "shutdownHint");
+        this.error = requireNonNull(error, "error");
+        this.shutdownHint = requireNonNull(shutdownHint, "shutdownHint");
+    }
+
+    static Http2Exception newStatic(Http2Error error, String message, ShutdownHint shutdownHint) {
+        if (PlatformDependent.javaVersion() >= 7) {
+            return new Http2Exception(error, message, shutdownHint, true);
+        }
+        return new Http2Exception(error, message, shutdownHint);
+    }
+
+    private Http2Exception(Http2Error error, String message, ShutdownHint shutdownHint, boolean shared) {
+        super(message, null, false, true);
+        assert shared;
+        this.error = requireNonNull(error, "error");
+        this.shutdownHint = requireNonNull(shutdownHint, "shutdownHint");
     }
 
     public Http2Error error() {
@@ -79,7 +94,7 @@ public class Http2Exception extends Exception {
      * @param error The type of error as defined by the HTTP/2 specification.
      * @param fmt String with the content and format for the additional debug data.
      * @param args Objects which fit into the format defined by {@code fmt}.
-     * @return An exception which can be translated into a HTTP/2 error.
+     * @return An exception which can be translated into an HTTP/2 error.
      */
     public static Http2Exception connectionError(Http2Error error, String fmt, Object... args) {
         return new Http2Exception(error, String.format(fmt, args));
@@ -92,7 +107,7 @@ public class Http2Exception extends Exception {
      * @param cause The object which caused the error.
      * @param fmt String with the content and format for the additional debug data.
      * @param args Objects which fit into the format defined by {@code fmt}.
-     * @return An exception which can be translated into a HTTP/2 error.
+     * @return An exception which can be translated into an HTTP/2 error.
      */
     public static Http2Exception connectionError(Http2Error error, Throwable cause,
             String fmt, Object... args) {
@@ -105,7 +120,7 @@ public class Http2Exception extends Exception {
      * @param error The type of error as defined by the HTTP/2 specification.
      * @param fmt String with the content and format for the additional debug data.
      * @param args Objects which fit into the format defined by {@code fmt}.
-     * @return An exception which can be translated into a HTTP/2 error.
+     * @return An exception which can be translated into an HTTP/2 error.
      */
     public static Http2Exception closedStreamError(Http2Error error, String fmt, Object... args) {
         return new ClosedStreamCreationException(error, String.format(fmt, args));
@@ -194,7 +209,7 @@ public class Http2Exception extends Exception {
     /**
      * Provides a hint as to if shutdown is justified, what type of shutdown should be executed.
      */
-    public static enum ShutdownHint {
+    public enum ShutdownHint {
         /**
          * Do not shutdown the underlying channel.
          */
@@ -207,7 +222,7 @@ public class Http2Exception extends Exception {
         /**
          * Close the channel immediately after a {@code GOAWAY} is sent.
          */
-        HARD_SHUTDOWN;
+        HARD_SHUTDOWN
     }
 
     /**
@@ -275,7 +290,7 @@ public class Http2Exception extends Exception {
 
         public CompositeStreamException(Http2Error error, int initialCapacity) {
             super(error, ShutdownHint.NO_SHUTDOWN);
-            exceptions = new ArrayList<StreamException>(initialCapacity);
+            exceptions = new ArrayList<>(initialCapacity);
         }
 
         public void add(StreamException e) {

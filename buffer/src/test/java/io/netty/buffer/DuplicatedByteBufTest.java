@@ -33,6 +33,13 @@ public class DuplicatedByteBufTest extends AbstractByteBufTest {
         return buffer;
     }
 
+    @Test
+    public void testIsContiguous() {
+        ByteBuf buf = newBuffer(4);
+        assertEquals(buf.unwrap().isContiguous(), buf.isContiguous());
+        buf.release();
+    }
+
     @Test(expected = NullPointerException.class)
     public void shouldNotAllowNullInConstructor() {
         new DuplicatedByteBuf(null);
@@ -49,27 +56,5 @@ public class DuplicatedByteBufTest extends AbstractByteBufTest {
         wrapped.capacity(wrapped.capacity() * 2);
 
         assertEquals((byte) 0, buffer.readByte());
-    }
-
-    @Test
-    public void testMarksInitialized() {
-        ByteBuf wrapped = Unpooled.buffer(8);
-        try {
-            wrapped.writerIndex(6);
-            wrapped.readerIndex(1);
-            ByteBuf duplicate = new DuplicatedByteBuf(wrapped);
-
-            // Test writer mark
-            duplicate.writerIndex(duplicate.writerIndex() + 1);
-            duplicate.resetWriterIndex();
-            assertEquals(wrapped.writerIndex(), duplicate.writerIndex());
-
-            // Test reader mark
-            duplicate.readerIndex(duplicate.readerIndex() + 1);
-            duplicate.resetReaderIndex();
-            assertEquals(wrapped.readerIndex(), duplicate.readerIndex());
-        } finally {
-            wrapped.release();
-        }
     }
 }

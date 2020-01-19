@@ -15,6 +15,8 @@
  */
 package io.netty.handler.codec.string;
 
+import static java.util.Objects.requireNonNull;
+
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;
 import io.netty.channel.ChannelHandler.Sharable;
@@ -51,7 +53,6 @@ import java.util.List;
 @Sharable
 public class StringEncoder extends MessageToMessageEncoder<CharSequence> {
 
-    // TODO Use CharsetEncoder instead.
     private final Charset charset;
 
     /**
@@ -65,9 +66,7 @@ public class StringEncoder extends MessageToMessageEncoder<CharSequence> {
      * Creates a new instance with the specified character set.
      */
     public StringEncoder(Charset charset) {
-        if (charset == null) {
-            throw new NullPointerException("charset");
-        }
+        requireNonNull(charset, "charset");
         this.charset = charset;
     }
 

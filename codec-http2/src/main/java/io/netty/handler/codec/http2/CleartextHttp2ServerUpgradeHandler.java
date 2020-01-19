@@ -25,12 +25,10 @@ import io.netty.handler.codec.http.HttpServerCodec;
 import io.netty.handler.codec.http.HttpServerUpgradeHandler;
 import io.netty.util.internal.UnstableApi;
 
-import java.util.List;
-
 import static io.netty.buffer.Unpooled.unreleasableBuffer;
 import static io.netty.handler.codec.http2.Http2CodecUtil.connectionPrefaceBuf;
 
-import static io.netty.util.internal.ObjectUtil.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Performing cleartext upgrade, by h2c HTTP upgrade or Prior Knowledge.
@@ -58,9 +56,9 @@ public final class CleartextHttp2ServerUpgradeHandler extends ChannelHandlerAdap
     public CleartextHttp2ServerUpgradeHandler(HttpServerCodec httpServerCodec,
                                               HttpServerUpgradeHandler httpServerUpgradeHandler,
                                               ChannelHandler http2ServerHandler) {
-        this.httpServerCodec = checkNotNull(httpServerCodec, "httpServerCodec");
-        this.httpServerUpgradeHandler = checkNotNull(httpServerUpgradeHandler, "httpServerUpgradeHandler");
-        this.http2ServerHandler = checkNotNull(http2ServerHandler, "http2ServerHandler");
+        this.httpServerCodec = requireNonNull(httpServerCodec, "httpServerCodec");
+        this.httpServerUpgradeHandler = requireNonNull(httpServerUpgradeHandler, "httpServerUpgradeHandler");
+        this.http2ServerHandler = requireNonNull(http2ServerHandler, "http2ServerHandler");
     }
 
     @Override
@@ -77,7 +75,7 @@ public final class CleartextHttp2ServerUpgradeHandler extends ChannelHandlerAdap
      */
     private final class PriorKnowledgeHandler extends ByteToMessageDecoder {
         @Override
-        protected void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) throws Exception {
+        protected void decode(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
             int prefaceLength = CONNECTION_PREFACE.readableBytes();
             int bytesRead = Math.min(in.readableBytes(), prefaceLength);
 

@@ -21,8 +21,6 @@ import io.netty.handler.codec.ByteToMessageDecoder;
 import io.netty.handler.codec.CorruptedFrameException;
 import io.netty.handler.codec.TooLongFrameException;
 
-import java.util.List;
-
 /**
  * A frame decoder for single separate XML based message streams.
  * <p/>
@@ -59,6 +57,12 @@ import java.util.List;
  * +-----------------+-------------------------------------+
  * </pre>
  *
+ * <p/>
+ * The byte stream is expected to be in UTF-8 character encoding or ASCII. The current implementation
+ * uses direct {@code byte} to {@code char} cast and then compares that {@code char} to a few low range
+ * ASCII characters like {@code '<'}, {@code '>'} or {@code '/'}. UTF-8 is not using low range [0..0x7F]
+ * byte values for multibyte codepoint representations therefore fully supported by this implementation.
+ * <p/>
  * Please note that this decoder is not suitable for
  * xml streaming protocols such as
  * <a href="http://xmpp.org/rfcs/rfc6120.html">XMPP</a>,
@@ -79,7 +83,7 @@ public class XmlFrameDecoder extends ByteToMessageDecoder {
     }
 
     @Override
-    protected void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) throws Exception {
+    protected void decode(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
         boolean openingBracketFound = false;
         boolean atLeastOneXmlElementFound = false;
         boolean inCDATASection = false;
@@ -183,7 +187,7 @@ public class XmlFrameDecoder extends ByteToMessageDecoder {
             final ByteBuf frame =
                     extractFrame(in, readerIndex + leadingWhiteSpaceCount, xmlElementLength - leadingWhiteSpaceCount);
             in.skipBytes(xmlElementLength);
-            out.add(frame);
+            ctx.fireChannelRead(frame);
         }
     }
 

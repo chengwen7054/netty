@@ -33,6 +33,7 @@ import io.netty.handler.codec.http.HttpResponseStatus;
 import io.netty.handler.codec.http.HttpUtil;
 import io.netty.handler.codec.http.HttpVersion;
 import io.netty.util.AsciiString;
+import io.netty.util.internal.InternalThreadLocalMap;
 import io.netty.util.internal.UnstableApi;
 
 import java.net.URI;
@@ -58,10 +59,10 @@ import static io.netty.util.AsciiString.indexOf;
 import static io.netty.util.AsciiString.trim;
 import static io.netty.util.ByteProcessor.FIND_COMMA;
 import static io.netty.util.ByteProcessor.FIND_SEMI_COLON;
-import static io.netty.util.internal.ObjectUtil.checkNotNull;
 import static io.netty.util.internal.StringUtil.isNullOrEmpty;
 import static io.netty.util.internal.StringUtil.length;
 import static io.netty.util.internal.StringUtil.unescapeCsvFields;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Provides utility methods and constants for the HTTP/2 to HTTP conversion
@@ -72,7 +73,7 @@ public final class HttpConversionUtil {
      * The set of headers that should not be directly copied when converting headers from HTTP to HTTP/2.
      */
     private static final CharSequenceMap<AsciiString> HTTP_TO_HTTP2_HEADER_BLACKLIST =
-            new CharSequenceMap<AsciiString>();
+            new CharSequenceMap<>();
     static {
         HTTP_TO_HTTP2_HEADER_BLACKLIST.add(CONNECTION, EMPTY_STRING);
         @SuppressWarnings("deprecation")
@@ -91,24 +92,24 @@ public final class HttpConversionUtil {
 
     /**
      * This will be the method used for {@link HttpRequest} objects generated out of the HTTP message flow defined in <a
-     * href="http://tools.ietf.org/html/draft-ietf-httpbis-http2-16#section-8.1.">HTTP/2 Spec Message Flow</a>
+     * href="https://tools.ietf.org/html/rfc7540#section-8.1">[RFC 7540], Section 8.1</a>
      */
     public static final HttpMethod OUT_OF_MESSAGE_SEQUENCE_METHOD = HttpMethod.OPTIONS;
 
     /**
      * This will be the path used for {@link HttpRequest} objects generated out of the HTTP message flow defined in <a
-     * href="http://tools.ietf.org/html/draft-ietf-httpbis-http2-16#section-8.1.">HTTP/2 Spec Message Flow</a>
+     * href="https://tools.ietf.org/html/rfc7540#section-8.1">[RFC 7540], Section 8.1</a>
      */
     public static final String OUT_OF_MESSAGE_SEQUENCE_PATH = "";
 
     /**
      * This will be the status code used for {@link HttpResponse} objects generated out of the HTTP message flow defined
-     * in <a href="http://tools.ietf.org/html/draft-ietf-httpbis-http2-16#section-8.1.">HTTP/2 Spec Message Flow</a>
+     * in <a href="https://tools.ietf.org/html/rfc7540#section-8.1">[RFC 7540], Section 8.1</a>
      */
     public static final HttpResponseStatus OUT_OF_MESSAGE_SEQUENCE_RETURN_CODE = HttpResponseStatus.OK;
 
     /**
-     * <a href="https://tools.ietf.org/html/rfc7540#section-8.1.2.3">rfc7540, 8.1.2.3</a> states the path must not
+     * <a href="https://tools.ietf.org/html/rfc7540#section-8.1.2.3">[RFC 7540], 8.1.2.3</a> states the path must not
      * be empty, and instead should be {@code /}.
      */
     private static final AsciiString EMPTY_REQUEST_PATH = AsciiString.cached("/");
@@ -121,28 +122,28 @@ public final class HttpConversionUtil {
      */
     public enum ExtensionHeaderNames {
         /**
-         * HTTP extension header which will identify the stream id from the HTTP/2 event(s) responsible for generating a
-         * {@code HttpObject}
+         * HTTP extension header which will identify the stream id from the HTTP/2 event(s) responsible for
+         * generating an {@code HttpObject}
          * <p>
          * {@code "x-http2-stream-id"}
          */
         STREAM_ID("x-http2-stream-id"),
         /**
          * HTTP extension header which will identify the scheme pseudo header from the HTTP/2 event(s) responsible for
-         * generating a {@code HttpObject}
+         * generating an {@code HttpObject}
          * <p>
          * {@code "x-http2-scheme"}
          */
         SCHEME("x-http2-scheme"),
         /**
          * HTTP extension header which will identify the path pseudo header from the HTTP/2 event(s) responsible for
-         * generating a {@code HttpObject}
+         * generating an {@code HttpObject}
          * <p>
          * {@code "x-http2-path"}
          */
         PATH("x-http2-path"),
         /**
-         * HTTP extension header which will identify the stream id used to create this stream in a HTTP/2 push promise
+         * HTTP extension header which will identify the stream id used to create this stream in an HTTP/2 push promise
          * frame
          * <p>
          * {@code "x-http2-stream-promise-id"}
@@ -157,7 +158,7 @@ public final class HttpConversionUtil {
         STREAM_DEPENDENCY_ID("x-http2-stream-dependency-id"),
         /**
          * HTTP extension header which will identify the weight (if non-default and the priority is not on the default
-         * stream) of the associated HTTP/2 stream responsible responsible for generating a {@code HttpObject}
+         * stream) of the associated HTTP/2 stream responsible responsible for generating an {@code HttpObject}
          * <p>
          * {@code "x-http2-stream-weight"}
          */
@@ -247,9 +248,9 @@ public final class HttpConversionUtil {
                                                 boolean validateHttpHeaders)
                     throws Http2Exception {
         // HTTP/2 does not define a way to carry the version identifier that is included in the HTTP/1.1 request line.
-        final CharSequence method = checkNotNull(http2Headers.method(),
+        final CharSequence method = requireNonNull(http2Headers.method(),
                 "method header cannot be null in conversion to HTTP/1.x");
-        final CharSequence path = checkNotNull(http2Headers.path(),
+        final CharSequence path = requireNonNull(http2Headers.path(),
                 "path header cannot be null in conversion to HTTP/1.x");
         FullHttpRequest msg = new DefaultFullHttpRequest(HttpVersion.HTTP_1_1, HttpMethod.valueOf(method
                         .toString()), path.toString(), alloc.buffer(), validateHttpHeaders);
@@ -280,9 +281,9 @@ public final class HttpConversionUtil {
     public static HttpRequest toHttpRequest(int streamId, Http2Headers http2Headers, boolean validateHttpHeaders)
                     throws Http2Exception {
         // HTTP/2 does not define a way to carry the version identifier that is included in the HTTP/1.1 request line.
-        final CharSequence method = checkNotNull(http2Headers.method(),
+        final CharSequence method = requireNonNull(http2Headers.method(),
                 "method header cannot be null in conversion to HTTP/1.x");
-        final CharSequence path = checkNotNull(http2Headers.path(),
+        final CharSequence path = requireNonNull(http2Headers.path(),
                 "path header cannot be null in conversion to HTTP/1.x");
         HttpRequest msg = new DefaultHttpRequest(HttpVersion.HTTP_1_1, HttpMethod.valueOf(method.toString()),
                 path.toString(), validateHttpHeaders);
@@ -360,9 +361,7 @@ public final class HttpConversionUtil {
             HttpVersion httpVersion, boolean isTrailer, boolean isRequest) throws Http2Exception {
         Http2ToHttpHeaderTranslator translator = new Http2ToHttpHeaderTranslator(streamId, outputHeaders, isRequest);
         try {
-            for (Entry<CharSequence, CharSequence> entry : inputHeaders) {
-                translator.translate(entry);
-            }
+            translator.translateHeaders(inputHeaders);
         } catch (Http2Exception ex) {
             throw ex;
         } catch (Throwable t) {
@@ -423,8 +422,8 @@ public final class HttpConversionUtil {
 
     private static CharSequenceMap<AsciiString> toLowercaseMap(Iterator<? extends CharSequence> valuesIter,
                                                                int arraySizeHint) {
-        UnsupportedValueConverter<AsciiString> valueConverter = UnsupportedValueConverter.<AsciiString>instance();
-        CharSequenceMap<AsciiString> result = new CharSequenceMap<AsciiString>(true, valueConverter, arraySizeHint);
+        UnsupportedValueConverter<AsciiString> valueConverter = UnsupportedValueConverter.instance();
+        CharSequenceMap<AsciiString> result = new CharSequenceMap<>(true, valueConverter, arraySizeHint);
 
         while (valuesIter.hasNext()) {
             AsciiString lowerCased = AsciiString.of(valuesIter.next()).toLowerCase();
@@ -520,7 +519,7 @@ public final class HttpConversionUtil {
     }
 
     /**
-     * Generate a HTTP/2 {code :path} from a URI in accordance with
+     * Generate an HTTP/2 {code :path} from a URI in accordance with
      * <a href="https://tools.ietf.org/html/rfc7230#section-5.3">rfc7230, 5.3</a>.
      */
     private static AsciiString toHttp2Path(URI uri) {
@@ -590,9 +589,9 @@ public final class HttpConversionUtil {
          * Translations from HTTP/2 header name to the HTTP/1.x equivalent.
          */
         private static final CharSequenceMap<AsciiString>
-            REQUEST_HEADER_TRANSLATIONS = new CharSequenceMap<AsciiString>();
+            REQUEST_HEADER_TRANSLATIONS = new CharSequenceMap<>();
         private static final CharSequenceMap<AsciiString>
-            RESPONSE_HEADER_TRANSLATIONS = new CharSequenceMap<AsciiString>();
+            RESPONSE_HEADER_TRANSLATIONS = new CharSequenceMap<>();
         static {
             RESPONSE_HEADER_TRANSLATIONS.add(Http2Headers.PseudoHeaderName.AUTHORITY.value(),
                             HttpHeaderNames.HOST);
@@ -620,29 +619,43 @@ public final class HttpConversionUtil {
             translations = request ? REQUEST_HEADER_TRANSLATIONS : RESPONSE_HEADER_TRANSLATIONS;
         }
 
-        public void translate(Entry<CharSequence, CharSequence> entry) throws Http2Exception {
-            final CharSequence name = entry.getKey();
-            final CharSequence value = entry.getValue();
-            AsciiString translatedName = translations.get(name);
-            if (translatedName != null) {
-                output.add(translatedName, AsciiString.of(value));
-            } else if (!Http2Headers.PseudoHeaderName.isPseudoHeader(name)) {
-                // https://tools.ietf.org/html/rfc7540#section-8.1.2.3
-                // All headers that start with ':' are only valid in HTTP/2 context
-                if (name.length() == 0 || name.charAt(0) == ':') {
-                    throw streamError(streamId, PROTOCOL_ERROR,
-                            "Invalid HTTP/2 header '%s' encountered in translation to HTTP/1.x", name);
-                }
-                if (COOKIE.equals(name)) {
-                    // combine the cookie values into 1 header entry.
-                    // https://tools.ietf.org/html/rfc7540#section-8.1.2.5
-                    String existingCookie = output.get(COOKIE);
-                    output.set(COOKIE,
-                               (existingCookie != null) ? (existingCookie + "; " + value) : value);
-                } else {
-                    output.add(name, value);
+        public void translateHeaders(Iterable<Entry<CharSequence, CharSequence>> inputHeaders) throws Http2Exception {
+            // lazily created as needed
+            StringBuilder cookies = null;
+
+            for (Entry<CharSequence, CharSequence> entry : inputHeaders) {
+                final CharSequence name = entry.getKey();
+                final CharSequence value = entry.getValue();
+                AsciiString translatedName = translations.get(name);
+                if (translatedName != null) {
+                    output.add(translatedName, AsciiString.of(value));
+                } else if (!Http2Headers.PseudoHeaderName.isPseudoHeader(name)) {
+                    // https://tools.ietf.org/html/rfc7540#section-8.1.2.3
+                    // All headers that start with ':' are only valid in HTTP/2 context
+                    if (name.length() == 0 || name.charAt(0) == ':') {
+                        throw streamError(streamId, PROTOCOL_ERROR,
+                                "Invalid HTTP/2 header '%s' encountered in translation to HTTP/1.x", name);
+                    }
+                    if (COOKIE.equals(name)) {
+                        // combine the cookie values into 1 header entry.
+                        // https://tools.ietf.org/html/rfc7540#section-8.1.2.5
+                        if (cookies == null) {
+                            cookies = InternalThreadLocalMap.get().stringBuilder();
+                        } else if (cookies.length() > 0) {
+                            cookies.append("; ");
+                        }
+                        cookies.append(value);
+                    } else {
+                        output.add(name, value);
+                    }
                 }
             }
+            if (cookies != null) {
+                output.add(COOKIE, cookies.toString());
+            }
+        }
+
+        private void translateHeader(Entry<CharSequence, CharSequence> entry) throws Http2Exception {
         }
     }
 }

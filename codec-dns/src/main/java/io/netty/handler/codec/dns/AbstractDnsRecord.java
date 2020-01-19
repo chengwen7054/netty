@@ -20,7 +20,8 @@ import io.netty.util.internal.UnstableApi;
 
 import java.net.IDN;
 
-import static io.netty.util.internal.ObjectUtil.checkNotNull;
+import static io.netty.util.internal.ObjectUtil.checkPositiveOrZero;
+import static java.util.Objects.requireNonNull;
 
 /**
  * A skeletal implementation of {@link DnsRecord}.
@@ -62,15 +63,13 @@ public abstract class AbstractDnsRecord implements DnsRecord {
      * @param timeToLive the TTL value of the record
      */
     protected AbstractDnsRecord(String name, DnsRecordType type, int dnsClass, long timeToLive) {
-        if (timeToLive < 0) {
-            throw new IllegalArgumentException("timeToLive: " + timeToLive + " (expected: >= 0)");
-        }
+        checkPositiveOrZero(timeToLive, "timeToLive");
         // Convert to ASCII which will also check that the length is not too big.
         // See:
         //   - https://github.com/netty/netty/issues/4937
         //   - https://github.com/netty/netty/issues/4935
-        this.name = appendTrailingDot(IDN.toASCII(checkNotNull(name, "name")));
-        this.type = checkNotNull(type, "type");
+        this.name = appendTrailingDot(IDN.toASCII(requireNonNull(name, "name")));
+        this.type = requireNonNull(type, "type");
         this.dnsClass = (short) dnsClass;
         this.timeToLive = timeToLive;
     }

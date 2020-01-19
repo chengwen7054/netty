@@ -20,7 +20,6 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.CombinedChannelDuplexHandler;
 
 import java.util.ArrayDeque;
-import java.util.List;
 import java.util.Queue;
 
 /**
@@ -33,7 +32,7 @@ public final class HttpServerCodec extends CombinedChannelDuplexHandler<HttpRequ
         implements HttpServerUpgradeHandler.SourceCodec {
 
     /** A queue that is used for correlating a request and a response. */
-    private final Queue<HttpMethod> queue = new ArrayDeque<HttpMethod>();
+    private final Queue<HttpMethod> queue = new ArrayDeque<>();
 
     /**
      * Creates a new instance with the default decoder options
@@ -41,32 +40,32 @@ public final class HttpServerCodec extends CombinedChannelDuplexHandler<HttpRequ
      * {@code maxChunkSize (8192)}).
      */
     public HttpServerCodec() {
-        this(4096, 8192, 8192);
+        this(4096, 8192);
     }
 
     /**
      * Creates a new instance with the specified decoder options.
      */
-    public HttpServerCodec(int maxInitialLineLength, int maxHeaderSize, int maxChunkSize) {
-        init(new HttpServerRequestDecoder(maxInitialLineLength, maxHeaderSize, maxChunkSize),
+    public HttpServerCodec(int maxInitialLineLength, int maxHeaderSize) {
+        init(new HttpServerRequestDecoder(maxInitialLineLength, maxHeaderSize),
                 new HttpServerResponseEncoder());
     }
 
     /**
      * Creates a new instance with the specified decoder options.
      */
-    public HttpServerCodec(int maxInitialLineLength, int maxHeaderSize, int maxChunkSize, boolean validateHeaders) {
-        init(new HttpServerRequestDecoder(maxInitialLineLength, maxHeaderSize, maxChunkSize, validateHeaders),
+    public HttpServerCodec(int maxInitialLineLength, int maxHeaderSize, boolean validateHeaders) {
+        init(new HttpServerRequestDecoder(maxInitialLineLength, maxHeaderSize, validateHeaders),
                 new HttpServerResponseEncoder());
     }
 
     /**
      * Creates a new instance with the specified decoder options.
      */
-    public HttpServerCodec(int maxInitialLineLength, int maxHeaderSize, int maxChunkSize, boolean validateHeaders,
+    public HttpServerCodec(int maxInitialLineLength, int maxHeaderSize, boolean validateHeaders,
                            int initialBufferSize) {
         init(
-          new HttpServerRequestDecoder(maxInitialLineLength, maxHeaderSize, maxChunkSize,
+          new HttpServerRequestDecoder(maxInitialLineLength, maxHeaderSize,
                   validateHeaders, initialBufferSize),
           new HttpServerResponseEncoder());
     }
@@ -81,31 +80,41 @@ public final class HttpServerCodec extends CombinedChannelDuplexHandler<HttpRequ
     }
 
     private final class HttpServerRequestDecoder extends HttpRequestDecoder {
-        public HttpServerRequestDecoder(int maxInitialLineLength, int maxHeaderSize, int maxChunkSize) {
-            super(maxInitialLineLength, maxHeaderSize, maxChunkSize);
+
+        private ChannelHandlerContext context;
+
+        HttpServerRequestDecoder(int maxInitialLineLength, int maxHeaderSize) {
+            super(maxInitialLineLength, maxHeaderSize);
         }
 
-        public HttpServerRequestDecoder(int maxInitialLineLength, int maxHeaderSize, int maxChunkSize,
+        HttpServerRequestDecoder(int maxInitialLineLength, int maxHeaderSize,
                                         boolean validateHeaders) {
-            super(maxInitialLineLength, maxHeaderSize, maxChunkSize, validateHeaders);
+            super(maxInitialLineLength, maxHeaderSize, validateHeaders);
         }
 
-        public HttpServerRequestDecoder(int maxInitialLineLength, int maxHeaderSize, int maxChunkSize,
+        HttpServerRequestDecoder(int maxInitialLineLength, int maxHeaderSize,
                                         boolean validateHeaders, int initialBufferSize) {
-            super(maxInitialLineLength, maxHeaderSize, maxChunkSize, validateHeaders, initialBufferSize);
+            super(maxInitialLineLength, maxHeaderSize, validateHeaders, initialBufferSize);
         }
 
         @Override
-        protected void decode(ChannelHandlerContext ctx, ByteBuf buffer, List<Object> out) throws Exception {
-            int oldSize = out.size();
-            super.decode(ctx, buffer, out);
-            int size = out.size();
-            for (int i = oldSize; i < size; i++) {
-                Object obj = out.get(i);
-                if (obj instanceof HttpRequest) {
-                    queue.add(((HttpRequest) obj).method());
+        protected void decode(final ChannelHandlerContext ctx, ByteBuf buffer) throws Exception {
+            super.decode(context, buffer);
+        }
+
+        @Override
+        protected void handlerAdded0(final ChannelHandlerContext ctx) {
+            context = new DelegatingChannelHandlerContext(ctx) {
+
+                @Override
+                public ChannelHandlerContext fireChannelRead(Object msg) {
+                    if (msg instanceof HttpRequest) {
+                        queue.add(((HttpRequest) msg).method());
+                    }
+                    super.fireChannelRead(msg);
+                    return this;
                 }
-            }
+            };
         }
     }
 
@@ -115,7 +124,8 @@ public final class HttpServerCodec extends CombinedChannelDuplexHandler<HttpRequ
 
         @Override
         protected void sanitizeHeadersBeforeEncode(HttpResponse msg, boolean isAlwaysEmpty) {
-            if (!isAlwaysEmpty && method == HttpMethod.CONNECT && msg.status().codeClass() == HttpStatusClass.SUCCESS) {
+            if (!isAlwaysEmpty && HttpMethod.CONNECT.equals(method)
+                    && msg.status().codeClass() == HttpStatusClass.SUCCESS) {
                 // Stripping Transfer-Encoding:
                 // See https://tools.ietf.org/html/rfc7230#section-3.3.1
                 msg.headers().remove(HttpHeaderNames.TRANSFER_ENCODING);

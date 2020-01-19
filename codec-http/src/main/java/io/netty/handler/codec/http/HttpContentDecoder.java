@@ -19,10 +19,9 @@ import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.embedded.EmbeddedChannel;
 import io.netty.handler.codec.CodecException;
+import io.netty.handler.codec.DecoderResult;
 import io.netty.handler.codec.MessageToMessageDecoder;
 import io.netty.util.ReferenceCountUtil;
-
-import java.util.List;
 
 /**
  * Decodes the content of the received {@link HttpRequest} and {@link HttpContent}.
@@ -50,16 +49,17 @@ public abstract class HttpContentDecoder extends MessageToMessageDecoder<HttpObj
     protected ChannelHandlerContext ctx;
     private EmbeddedChannel decoder;
     private boolean continueResponse;
+    private boolean needRead = true;
 
     @Override
-    protected void decode(ChannelHandlerContext ctx, HttpObject msg, List<Object> out) throws Exception {
+    protected void decode(ChannelHandlerContext ctx, HttpObject msg) throws Exception {
         if (msg instanceof HttpResponse && ((HttpResponse) msg).status().code() == 100) {
 
             if (!(msg instanceof LastHttpContent)) {
-                continueResponse = true;
+                    continueResponse = true;
             }
             // 100-continue response must be passed through.
-            out.add(ReferenceCountUtil.retain(msg));
+            fireChannelRead(ctx, ReferenceCountUtil.retain(msg));
             return;
         }
 
@@ -68,7 +68,7 @@ public abstract class HttpContentDecoder extends MessageToMessageDecoder<HttpObj
                 continueResponse = false;
             }
             // 100-continue response must be passed through.
-            out.add(ReferenceCountUtil.retain(msg));
+            fireChannelRead(ctx, ReferenceCountUtil.retain(msg));
             return;
         }
 
@@ -76,8 +76,7 @@ public abstract class HttpContentDecoder extends MessageToMessageDecoder<HttpObj
             cleanup();
             final HttpMessage message = (HttpMessage) msg;
             final HttpHeaders headers = message.headers();
-
-            // Determine the content encoding.
+             // Determine the content encoding.
             String contentEncoding = headers.get(HttpHeaderNames.CONTENT_ENCODING);
             if (contentEncoding != null) {
                 contentEncoding = contentEncoding.trim();
@@ -90,7 +89,7 @@ public abstract class HttpContentDecoder extends MessageToMessageDecoder<HttpObj
                 if (message instanceof HttpContent) {
                     ((HttpContent) message).retain();
                 }
-                out.add(message);
+                fireChannelRead(ctx, message);
                 return;
             }
 
@@ -129,42 +128,56 @@ public abstract class HttpContentDecoder extends MessageToMessageDecoder<HttpObj
                     copy = new DefaultHttpResponse(r.protocolVersion(), r.status());
                 } else {
                     throw new CodecException("Object of class " + message.getClass().getName() +
-                                             " is not a HttpRequest or HttpResponse");
+                            " is not an HttpRequest or HttpResponse");
                 }
                 copy.headers().set(message.headers());
                 copy.setDecoderResult(message.decoderResult());
-                out.add(copy);
+                fireChannelRead(ctx, copy);
             } else {
-                out.add(message);
+                fireChannelRead(ctx, message);
             }
         }
 
         if (msg instanceof HttpContent) {
             final HttpContent c = (HttpContent) msg;
             if (decoder == null) {
-                out.add(c.retain());
+                fireChannelRead(ctx, c.retain());
             } else {
-                decodeContent(c, out);
+                decodeContent(ctx, c);
             }
         }
     }
 
-    private void decodeContent(HttpContent c, List<Object> out) {
+    private void decodeContent(ChannelHandlerContext ctx, HttpContent c) {
         ByteBuf content = c.content();
 
-        decode(content, out);
+        decode(ctx, content);
 
         if (c instanceof LastHttpContent) {
-            finishDecode(out);
+            finishDecode(ctx);
 
             LastHttpContent last = (LastHttpContent) c;
             // Generate an additional chunk if the decoder produced
             // the last product on closure,
             HttpHeaders headers = last.trailingHeaders();
             if (headers.isEmpty()) {
-                out.add(LastHttpContent.EMPTY_LAST_CONTENT);
+                fireChannelRead(ctx, LastHttpContent.EMPTY_LAST_CONTENT);
             } else {
-                out.add(new ComposedLastHttpContent(headers));
+                fireChannelRead(ctx, new ComposedLastHttpContent(headers, DecoderResult.SUCCESS));
+            }
+        }
+    }
+
+    @Override
+    public void channelReadComplete(ChannelHandlerContext ctx) throws Exception {
+        boolean needRead = this.needRead;
+        this.needRead = true;
+
+        try {
+            ctx.fireChannelReadComplete();
+        } finally {
+            if (needRead && !ctx.channel().config().isAutoRead()) {
+                ctx.read();
             }
         }
     }
@@ -229,20 +242,20 @@ public abstract class HttpContentDecoder extends MessageToMessageDecoder<HttpObj
         }
     }
 
-    private void decode(ByteBuf in, List<Object> out) {
+    private void decode(ChannelHandlerContext ctx, ByteBuf in) {
         // call retain here as it will call release after its written to the channel
         decoder.writeInbound(in.retain());
-        fetchDecoderOutput(out);
+        fetchDecoderOutput(ctx);
     }
 
-    private void finishDecode(List<Object> out) {
+    private void finishDecode(ChannelHandlerContext ctx) {
         if (decoder.finish()) {
-            fetchDecoderOutput(out);
+            fetchDecoderOutput(ctx);
         }
         decoder = null;
     }
 
-    private void fetchDecoderOutput(List<Object> out) {
+    private void fetchDecoderOutput(ChannelHandlerContext ctx) {
         for (;;) {
             ByteBuf buf = decoder.readInbound();
             if (buf == null) {
@@ -252,7 +265,12 @@ public abstract class HttpContentDecoder extends MessageToMessageDecoder<HttpObj
                 buf.release();
                 continue;
             }
-            out.add(new DefaultHttpContent(buf));
+            ctx.fireChannelRead(new DefaultHttpContent(buf));
         }
+    }
+
+    private void fireChannelRead(ChannelHandlerContext ctx, Object msg) {
+        needRead = false;
+        ctx.fireChannelRead(msg);
     }
 }

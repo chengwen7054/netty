@@ -16,8 +16,10 @@
 
 package io.netty.util.internal;
 
-import io.netty.util.Recycler;
-import io.netty.util.Recycler.Handle;
+import static java.util.Objects.requireNonNull;
+
+import io.netty.util.internal.ObjectPool.Handle;
+import io.netty.util.internal.ObjectPool.ObjectCreator;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -33,12 +35,13 @@ public final class RecyclableArrayList extends ArrayList<Object> {
 
     private static final int DEFAULT_INITIAL_CAPACITY = 8;
 
-    private static final Recycler<RecyclableArrayList> RECYCLER = new Recycler<RecyclableArrayList>() {
+    private static final ObjectPool<RecyclableArrayList> RECYCLER = ObjectPool.newPool(
+            new ObjectCreator<RecyclableArrayList>() {
         @Override
-        protected RecyclableArrayList newObject(Handle<RecyclableArrayList> handle) {
+        public RecyclableArrayList newObject(Handle<RecyclableArrayList> handle) {
             return new RecyclableArrayList(handle);
         }
-    };
+    });
 
     private boolean insertSinceRecycled;
 
@@ -110,9 +113,7 @@ public final class RecyclableArrayList extends ArrayList<Object> {
 
     @Override
     public boolean add(Object element) {
-        if (element == null) {
-            throw new NullPointerException("element");
-        }
+        requireNonNull(element, "element");
         if (super.add(element)) {
             insertSinceRecycled = true;
             return true;
@@ -122,18 +123,14 @@ public final class RecyclableArrayList extends ArrayList<Object> {
 
     @Override
     public void add(int index, Object element) {
-        if (element == null) {
-            throw new NullPointerException("element");
-        }
+        requireNonNull(element, "element");
         super.add(index, element);
         insertSinceRecycled = true;
     }
 
     @Override
     public Object set(int index, Object element) {
-        if (element == null) {
-            throw new NullPointerException("element");
-        }
+        requireNonNull(element, "element");
         Object old = super.set(index, element);
         insertSinceRecycled = true;
         return old;

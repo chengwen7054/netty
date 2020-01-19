@@ -16,33 +16,41 @@
 
 package io.netty.channel;
 
+import static java.util.Objects.requireNonNull;
+
 import io.netty.util.internal.StringUtil;
+
+import java.lang.reflect.Constructor;
 
 /**
  * A {@link ChannelFactory} that instantiates a new {@link Channel} by invoking its default constructor reflectively.
  */
 public class ReflectiveChannelFactory<T extends Channel> implements ChannelFactory<T> {
 
-    private final Class<? extends T> clazz;
+    private final Constructor<? extends T> constructor;
 
     public ReflectiveChannelFactory(Class<? extends T> clazz) {
-        if (clazz == null) {
-            throw new NullPointerException("clazz");
+        requireNonNull(clazz, "clazz");
+        try {
+            this.constructor = clazz.getConstructor(EventLoop.class);
+        } catch (NoSuchMethodException e) {
+            throw new IllegalArgumentException("Class " + StringUtil.simpleClassName(clazz) +
+                    " does not have a public constructor that takes an EventLoop instance", e);
         }
-        this.clazz = clazz;
     }
 
     @Override
-    public T newChannel() {
+    public T newChannel(EventLoop eventLoop) throws Exception {
         try {
-            return clazz.getConstructor().newInstance();
+            return constructor.newInstance(eventLoop);
         } catch (Throwable t) {
-            throw new ChannelException("Unable to create Channel from class " + clazz, t);
+            throw new ChannelException("Unable to create Channel from class " + constructor.getDeclaringClass(), t);
         }
     }
 
     @Override
     public String toString() {
-        return StringUtil.simpleClassName(clazz) + ".class";
+        return StringUtil.simpleClassName(ReflectiveChannelFactory.class) +
+                '(' + StringUtil.simpleClassName(constructor.getDeclaringClass()) + ".class)";
     }
 }

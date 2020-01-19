@@ -68,11 +68,11 @@ public final class CorsConfigBuilder {
     boolean allowNullOrigin;
     boolean enabled = true;
     boolean allowCredentials;
-    final Set<String> exposeHeaders = new HashSet<String>();
+    final Set<String> exposeHeaders = new HashSet<>();
     long maxAge;
-    final Set<HttpMethod> requestMethods = new HashSet<HttpMethod>();
-    final Set<String> requestHeaders = new HashSet<String>();
-    final Map<CharSequence, Callable<?>> preflightHeaders = new HashMap<CharSequence, Callable<?>>();
+    final Set<HttpMethod> requestMethods = new HashSet<>();
+    final Set<String> requestHeaders = new HashSet<>();
+    final Map<CharSequence, Callable<?>> preflightHeaders = new HashMap<>();
     private boolean noPreflightHeaders;
     boolean shortCircuit;
 
@@ -82,7 +82,7 @@ public final class CorsConfigBuilder {
      * @param origins the origin to be used for this builder.
      */
     CorsConfigBuilder(final String... origins) {
-        this.origins = new LinkedHashSet<String>(Arrays.asList(origins));
+        this.origins = new LinkedHashSet<>(Arrays.asList(origins));
         anyOrigin = false;
     }
 
@@ -341,7 +341,7 @@ public final class CorsConfigBuilder {
      *
      * CORS headers are set after a request is processed. This may not always be desired
      * and this setting will check that the Origin is valid and if it is not valid no
-     * further processing will take place, and a error will be returned to the calling client.
+     * further processing will take place, and an error will be returned to the calling client.
      *
      * @return {@link CorsConfigBuilder} to support method chaining.
      */

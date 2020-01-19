@@ -14,9 +14,6 @@
  */
 package io.netty.handler.codec.http;
 
-import static io.netty.util.AsciiString.containsContentEqualsIgnoreCase;
-import static io.netty.util.AsciiString.containsAllContentEqualsIgnoreCase;
-
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelFutureListener;
@@ -30,7 +27,10 @@ import java.util.List;
 
 import static io.netty.handler.codec.http.HttpResponseStatus.SWITCHING_PROTOCOLS;
 import static io.netty.handler.codec.http.HttpVersion.HTTP_1_1;
-import static io.netty.util.internal.ObjectUtil.checkNotNull;
+import static java.util.Objects.requireNonNull;
+import static io.netty.util.AsciiString.containsAllContentEqualsIgnoreCase;
+import static io.netty.util.AsciiString.containsContentEqualsIgnoreCase;
+import static io.netty.util.internal.StringUtil.COMMA;
 
 /**
  * A server-side handler that receives HTTP requests and optionally performs a protocol switch if
@@ -201,50 +201,47 @@ public class HttpServerUpgradeHandler extends HttpObjectAggregator {
             SourceCodec sourceCodec, UpgradeCodecFactory upgradeCodecFactory, int maxContentLength) {
         super(maxContentLength);
 
-        this.sourceCodec = checkNotNull(sourceCodec, "sourceCodec");
-        this.upgradeCodecFactory = checkNotNull(upgradeCodecFactory, "upgradeCodecFactory");
+        this.sourceCodec = requireNonNull(sourceCodec, "sourceCodec");
+        this.upgradeCodecFactory = requireNonNull(upgradeCodecFactory, "upgradeCodecFactory");
     }
 
     @Override
-    protected void decode(ChannelHandlerContext ctx, HttpObject msg, List<Object> out)
+    protected void decode(final ChannelHandlerContext ctx, HttpObject msg)
             throws Exception {
         // Determine if we're already handling an upgrade request or just starting a new one.
         handlingUpgrade |= isUpgradeRequest(msg);
         if (!handlingUpgrade) {
             // Not handling an upgrade request, just pass it to the next handler.
             ReferenceCountUtil.retain(msg);
-            out.add(msg);
+            ctx.fireChannelRead(msg);
             return;
         }
 
         FullHttpRequest fullRequest;
         if (msg instanceof FullHttpRequest) {
             fullRequest = (FullHttpRequest) msg;
-            ReferenceCountUtil.retain(msg);
-            out.add(msg);
+            tryUpgrade(ctx, fullRequest.retain());
         } else {
             // Call the base class to handle the aggregation of the full request.
-            super.decode(ctx, msg, out);
-            if (out.isEmpty()) {
-                // The full request hasn't been created yet, still awaiting more data.
-                return;
-            }
-
-            // Finished aggregating the full request, get it from the output list.
-            assert out.size() == 1;
-            handlingUpgrade = false;
-            fullRequest = (FullHttpRequest) out.get(0);
+            super.decode(new DelegatingChannelHandlerContext(ctx) {
+                @Override
+                public ChannelHandlerContext fireChannelRead(Object msg) {
+                    // Finished aggregating the full request, get it from the output list.
+                    handlingUpgrade = false;
+                    tryUpgrade(ctx, (FullHttpRequest) msg);
+                    return this;
+                }
+            }, msg);
         }
+    }
 
-        if (upgrade(ctx, fullRequest)) {
-            // The upgrade was successful, remove the message from the output list
-            // so that it's not propagated to the next handler. This request will
-            // be propagated as a user event instead.
-            out.clear();
+    private void tryUpgrade(ChannelHandlerContext ctx, FullHttpRequest request) {
+        if (!upgrade(ctx, request)) {
+
+            // The upgrade did not succeed, just allow the full request to propagate to the
+            // next handler.
+            ctx.fireChannelRead(request);
         }
-
-        // The upgrade did not succeed, just allow the full request to propagate to the
-        // next handler.
     }
 
     /**
@@ -284,16 +281,23 @@ public class HttpServerUpgradeHandler extends HttpObjectAggregator {
         }
 
         // Make sure the CONNECTION header is present.
-        CharSequence connectionHeader = request.headers().get(HttpHeaderNames.CONNECTION);
-        if (connectionHeader == null) {
+        List<String> connectionHeaderValues = request.headers().getAll(HttpHeaderNames.CONNECTION);
+
+        if (connectionHeaderValues == null) {
             return false;
         }
 
+        final StringBuilder concatenatedConnectionValue = new StringBuilder(connectionHeaderValues.size() * 10);
+        for (CharSequence connectionHeaderValue : connectionHeaderValues) {
+            concatenatedConnectionValue.append(connectionHeaderValue).append(COMMA);
+        }
+        concatenatedConnectionValue.setLength(concatenatedConnectionValue.length() - 1);
+
         // Make sure the CONNECTION header contains UPGRADE as well as all protocol-specific headers.
         Collection<CharSequence> requiredHeaders = upgradeCodec.requiredUpgradeHeaders();
-        List<CharSequence> values = splitHeader(connectionHeader);
+        List<CharSequence> values = splitHeader(concatenatedConnectionValue);
         if (!containsContentEqualsIgnoreCase(values, HttpHeaderNames.UPGRADE) ||
-            !containsAllContentEqualsIgnoreCase(values, requiredHeaders)) {
+                !containsAllContentEqualsIgnoreCase(values, requiredHeaders)) {
             return false;
         }
 
@@ -359,7 +363,7 @@ public class HttpServerUpgradeHandler extends HttpObjectAggregator {
      */
     private static List<CharSequence> splitHeader(CharSequence header) {
         final StringBuilder builder = new StringBuilder(header.length());
-        final List<CharSequence> protocols = new ArrayList<CharSequence>(4);
+        final List<CharSequence> protocols = new ArrayList<>(4);
         for (int i = 0; i < header.length(); ++i) {
             char c = header.charAt(i);
             if (Character.isWhitespace(c)) {

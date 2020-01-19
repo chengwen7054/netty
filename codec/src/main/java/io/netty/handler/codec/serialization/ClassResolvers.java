@@ -17,8 +17,8 @@ package io.netty.handler.codec.serialization;
 
 import io.netty.util.internal.PlatformDependent;
 
-import java.lang.ref.Reference;
 import java.util.HashMap;
+import java.util.concurrent.ConcurrentHashMap;
 
 public final class ClassResolvers {
 
@@ -32,7 +32,7 @@ public final class ClassResolvers {
     }
 
     /**
-     * non-agressive non-concurrent cache
+     * non-aggressive non-concurrent cache
      * good for non-shared default cache
      *
      * @param classLoader - specific classLoader to use, or null if you want to revert to default
@@ -41,11 +41,11 @@ public final class ClassResolvers {
     public static ClassResolver weakCachingResolver(ClassLoader classLoader) {
         return new CachingClassResolver(
                 new ClassLoaderClassResolver(defaultClassLoader(classLoader)),
-                new WeakReferenceMap<String, Class<?>>(new HashMap<String, Reference<Class<?>>>()));
+                new WeakReferenceMap<>(new HashMap<>()));
     }
 
     /**
-     * agressive non-concurrent cache
+     * aggressive non-concurrent cache
      * good for non-shared cache, when we're not worried about class unloading
      *
      * @param classLoader - specific classLoader to use, or null if you want to revert to default
@@ -54,11 +54,11 @@ public final class ClassResolvers {
     public static ClassResolver softCachingResolver(ClassLoader classLoader) {
         return new CachingClassResolver(
                 new ClassLoaderClassResolver(defaultClassLoader(classLoader)),
-                new SoftReferenceMap<String, Class<?>>(new HashMap<String, Reference<Class<?>>>()));
+                new SoftReferenceMap<>(new HashMap<>()));
     }
 
     /**
-     * non-agressive concurrent cache
+     * non-aggressive concurrent cache
      * good for shared cache, when we're worried about class unloading
      *
      * @param classLoader - specific classLoader to use, or null if you want to revert to default
@@ -67,12 +67,11 @@ public final class ClassResolvers {
     public static ClassResolver weakCachingConcurrentResolver(ClassLoader classLoader) {
         return new CachingClassResolver(
                 new ClassLoaderClassResolver(defaultClassLoader(classLoader)),
-                new WeakReferenceMap<String, Class<?>>(
-                        PlatformDependent.<String, Reference<Class<?>>>newConcurrentHashMap()));
+                new WeakReferenceMap<>(new ConcurrentHashMap<>()));
     }
 
     /**
-     * agressive concurrent cache
+     * aggressive concurrent cache
      * good for shared cache, when we're not worried about class unloading
      *
      * @param classLoader - specific classLoader to use, or null if you want to revert to default
@@ -81,8 +80,7 @@ public final class ClassResolvers {
     public static ClassResolver softCachingConcurrentResolver(ClassLoader classLoader) {
         return new CachingClassResolver(
                 new ClassLoaderClassResolver(defaultClassLoader(classLoader)),
-                new SoftReferenceMap<String, Class<?>>(
-                        PlatformDependent.<String, Reference<Class<?>>>newConcurrentHashMap()));
+                new SoftReferenceMap<>(new ConcurrentHashMap<>()));
     }
 
     static ClassLoader defaultClassLoader(ClassLoader classLoader) {

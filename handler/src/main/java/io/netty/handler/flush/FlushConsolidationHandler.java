@@ -16,18 +16,17 @@
 package io.netty.handler.flush;
 
 import io.netty.channel.Channel;
-import io.netty.channel.ChannelDuplexHandler;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
-import io.netty.channel.ChannelOutboundHandler;
 import io.netty.channel.ChannelOutboundInvoker;
 import io.netty.channel.ChannelPipeline;
 import io.netty.channel.ChannelPromise;
+import io.netty.util.internal.ObjectUtil;
 
 import java.util.concurrent.Future;
 
 /**
- * {@link ChannelDuplexHandler} which consolidates {@link Channel#flush()} / {@link ChannelHandlerContext#flush()}
+ * {@link ChannelHandler} which consolidates {@link Channel#flush()} / {@link ChannelHandlerContext#flush()}
  * operations (which also includes
  * {@link Channel#writeAndFlush(Object)} / {@link Channel#writeAndFlush(Object, ChannelPromise)} and
  * {@link ChannelOutboundInvoker#writeAndFlush(Object)} /
@@ -38,7 +37,7 @@ import java.util.concurrent.Future;
  * as much as possible.
  * <p>
  * If a read loop is currently ongoing, {@link #flush(ChannelHandlerContext)} will not be passed on to the next
- * {@link ChannelOutboundHandler} in the {@link ChannelPipeline}, as it will pick up any pending flushes when
+ * {@link ChannelHandler} in the {@link ChannelPipeline}, as it will pick up any pending flushes when
  * {@link #channelReadComplete(ChannelHandlerContext)} is triggered.
  * If no read loop is ongoing, the behavior depends on the {@code consolidateWhenNoReadInProgress} constructor argument:
  * <ul>
@@ -47,15 +46,15 @@ import java.util.concurrent.Future;
  *     high throughput, this gives the opportunity to process other flushes before the task gets executed, thus
  *     batching multiple flushes into one.</li>
  * </ul>
- * If {@code explicitFlushAfterFlushes} is reached the flush will also be forwarded as well (whether while in a read
- * loop, or while batching outside of a read loop).
+ * If {@code explicitFlushAfterFlushes} is reached the flush will be forwarded as well (whether while in a read loop, or
+ * while batching outside of a read loop).
  * <p>
  * If the {@link Channel} becomes non-writable it will also try to execute any pending flush operations.
  * <p>
  * The {@link FlushConsolidationHandler} should be put as first {@link ChannelHandler} in the
  * {@link ChannelPipeline} to have the best effect.
  */
-public class FlushConsolidationHandler extends ChannelDuplexHandler {
+public class FlushConsolidationHandler implements ChannelHandler {
     private final int explicitFlushAfterFlushes;
     private final boolean consolidateWhenNoReadInProgress;
     private final Runnable flushTask;
@@ -65,10 +64,17 @@ public class FlushConsolidationHandler extends ChannelDuplexHandler {
     private Future<?> nextScheduledFlush;
 
     /**
-     * Create new instance which explicit flush after 256 pending flush operations latest.
+     * The default number of flushes after which a flush will be forwarded to downstream handlers (whether while in a
+     * read loop, or while batching outside of a read loop).
+     */
+    public static final int DEFAULT_EXPLICIT_FLUSH_AFTER_FLUSHES = 256;
+
+    /**
+     * Create new instance which explicit flush after {@value DEFAULT_EXPLICIT_FLUSH_AFTER_FLUSHES} pending flush
+     * operations at the latest.
      */
     public FlushConsolidationHandler() {
-        this(256, false);
+        this(DEFAULT_EXPLICIT_FLUSH_AFTER_FLUSHES, false);
     }
 
     /**
@@ -88,22 +94,16 @@ public class FlushConsolidationHandler extends ChannelDuplexHandler {
      *                                        ongoing.
      */
     public FlushConsolidationHandler(int explicitFlushAfterFlushes, boolean consolidateWhenNoReadInProgress) {
-        if (explicitFlushAfterFlushes <= 0) {
-            throw new IllegalArgumentException("explicitFlushAfterFlushes: "
-                    + explicitFlushAfterFlushes + " (expected: > 0)");
-        }
-        this.explicitFlushAfterFlushes = explicitFlushAfterFlushes;
+        this.explicitFlushAfterFlushes =
+                ObjectUtil.checkPositive(explicitFlushAfterFlushes, "explicitFlushAfterFlushes");
         this.consolidateWhenNoReadInProgress = consolidateWhenNoReadInProgress;
         flushTask = consolidateWhenNoReadInProgress ?
-                new Runnable() {
-                    @Override
-                    public void run() {
-                        if (flushPendingCount > 0 && !readInProgress) {
-                            flushPendingCount = 0;
-                            ctx.flush();
-                            nextScheduledFlush = null;
-                        } // else we'll flush when the read completes
-                    }
+                () -> {
+                    if (flushPendingCount > 0 && !readInProgress) {
+                        flushPendingCount = 0;
+                        nextScheduledFlush = null;
+                        ctx.flush();
+                    } // else we'll flush when the read completes
                 }
                 : null;
     }

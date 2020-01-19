@@ -15,7 +15,9 @@
 package io.netty.handler.codec.http2;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.Unpooled;
+import io.netty.buffer.UnpooledByteBufAllocator;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelFutureListener;
@@ -24,18 +26,33 @@ import io.netty.channel.ChannelPromise;
 import io.netty.channel.DefaultChannelPromise;
 import io.netty.handler.codec.ByteToMessageDecoder;
 import io.netty.util.AsciiString;
+import io.netty.util.ReferenceCountUtil;
 import io.netty.util.concurrent.Future;
 import io.netty.util.concurrent.GenericFutureListener;
 import io.netty.util.concurrent.ImmediateEventExecutor;
 import junit.framework.AssertionFailedError;
+import org.mockito.Mockito;
+import org.mockito.invocation.InvocationOnMock;
+import org.mockito.stubbing.Answer;
 
-import java.util.List;
 import java.util.Random;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 
 import static io.netty.handler.codec.http2.Http2CodecUtil.MAX_HEADER_LIST_SIZE;
 import static io.netty.handler.codec.http2.Http2CodecUtil.MAX_HEADER_TABLE_SIZE;
+import static io.netty.util.ReferenceCountUtil.release;
 import static java.lang.Math.min;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyByte;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyShort;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.when;
 
 /**
  * Utilities for the integration tests.
@@ -52,14 +69,11 @@ public final class Http2TestUtil {
      * Runs the given operation within the event loop thread of the given {@link Channel}.
      */
     static void runInChannel(Channel channel, final Http2Runnable runnable) {
-        channel.eventLoop().execute(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    runnable.run();
-                } catch (Http2Exception e) {
-                    throw new RuntimeException(e);
-                }
+        channel.eventLoop().execute(() -> {
+            try {
+                runnable.run();
+            } catch (Http2Exception e) {
+                throw new RuntimeException(e);
             }
         });
     }
@@ -101,7 +115,7 @@ public final class Http2TestUtil {
 
     public static HpackEncoder newTestEncoder(boolean ignoreMaxHeaderListSize,
                                               long maxHeaderListSize, long maxHeaderTableSize) throws Http2Exception {
-        HpackEncoder hpackEncoder = new HpackEncoder();
+        HpackEncoder hpackEncoder = new HpackEncoder(false, 16, 0);
         ByteBuf buf = Unpooled.buffer();
         try {
             hpackEncoder.setMaxHeaderTableSize(buf, maxHeaderTableSize);
@@ -121,7 +135,7 @@ public final class Http2TestUtil {
     }
 
     public static HpackDecoder newTestDecoder(long maxHeaderListSize, long maxHeaderTableSize) throws Http2Exception {
-        HpackDecoder hpackDecoder = new HpackDecoder(maxHeaderListSize, 32);
+        HpackDecoder hpackDecoder = new HpackDecoder(maxHeaderListSize);
         hpackDecoder.setMaxHeaderTableSize(maxHeaderTableSize);
         return hpackDecoder;
     }
@@ -182,7 +196,7 @@ public final class Http2TestUtil {
         }
 
         @Override
-        protected void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) throws Exception {
+        protected void decode(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
             reader.readFrame(ctx, in, new Http2FrameListener() {
                 @Override
                 public int onDataRead(ChannelHandlerContext ctx, int streamId, ByteBuf data, int padding,
@@ -459,12 +473,9 @@ public final class Http2TestUtil {
             public ChannelPromise unvoid() {
                 ChannelPromise promise =
                         new DefaultChannelPromise(channel, ImmediateEventExecutor.INSTANCE);
-                promise.addListener(new ChannelFutureListener() {
-                    @Override
-                    public void operationComplete(ChannelFuture future) throws Exception {
-                        if (!future.isSuccess()) {
-                            channel().pipeline().fireExceptionCaught(future.cause());
-                        }
+                promise.addListener((ChannelFutureListener) future -> {
+                    if (!future.isSuccess()) {
+                        channel().pipeline().fireExceptionCaught(future.cause());
                     }
                 });
                 return promise;
@@ -506,4 +517,139 @@ public final class Http2TestUtil {
             return isWriteAllowed ? (int) min(pendingBytes, Integer.MAX_VALUE) : -1;
         }
     }
+
+    static Http2FrameWriter mockedFrameWriter() {
+        Http2FrameWriter.Configuration configuration = new Http2FrameWriter.Configuration() {
+            private final Http2HeadersEncoder.Configuration headerConfiguration =
+                    new Http2HeadersEncoder.Configuration() {
+                @Override
+                public void maxHeaderTableSize(long max)  {
+                    // NOOP
+                }
+
+                @Override
+                public long maxHeaderTableSize() {
+                    return 0;
+                }
+
+                @Override
+                public void maxHeaderListSize(long max) {
+                    // NOOP
+                }
+
+                @Override
+                public long maxHeaderListSize() {
+                    return 0;
+                }
+            };
+
+            private final Http2FrameSizePolicy policy = new Http2FrameSizePolicy() {
+                @Override
+                public void maxFrameSize(int max) {
+                    // NOOP
+                }
+
+                @Override
+                public int maxFrameSize() {
+                    return 0;
+                }
+            };
+            @Override
+            public Http2HeadersEncoder.Configuration headersConfiguration() {
+                return headerConfiguration;
+            }
+
+            @Override
+            public Http2FrameSizePolicy frameSizePolicy() {
+                return policy;
+            }
+        };
+
+        final ConcurrentLinkedQueue<ByteBuf> buffers = new ConcurrentLinkedQueue<>();
+
+        Http2FrameWriter frameWriter = Mockito.mock(Http2FrameWriter.class);
+        doAnswer(invocationOnMock -> {
+            for (;;) {
+                ByteBuf buf = buffers.poll();
+                if (buf == null) {
+                    break;
+                }
+                buf.release();
+            }
+            return null;
+        }).when(frameWriter).close();
+
+        when(frameWriter.configuration()).thenReturn(configuration);
+        when(frameWriter.writeSettings(any(ChannelHandlerContext.class), any(Http2Settings.class),
+                any(ChannelPromise.class))).thenAnswer((Answer<ChannelFuture>) invocationOnMock ->
+                ((ChannelPromise) invocationOnMock.getArgument(2)).setSuccess());
+
+        when(frameWriter.writeSettingsAck(any(ChannelHandlerContext.class), any(ChannelPromise.class)))
+                .thenAnswer((Answer<ChannelFuture>) invocationOnMock ->
+                        ((ChannelPromise) invocationOnMock.getArgument(1)).setSuccess());
+
+        when(frameWriter.writeGoAway(any(ChannelHandlerContext.class), anyInt(),
+                anyLong(), any(ByteBuf.class), any(ChannelPromise.class))).thenAnswer(invocationOnMock -> {
+                    buffers.offer((ByteBuf) invocationOnMock.getArgument(3));
+                    return ((ChannelPromise) invocationOnMock.getArgument(4)).setSuccess();
+                });
+        when(frameWriter.writeHeaders(any(ChannelHandlerContext.class), anyInt(), any(Http2Headers.class), anyInt(),
+                anyBoolean(), any(ChannelPromise.class))).thenAnswer((Answer<ChannelFuture>) invocationOnMock ->
+                ((ChannelPromise) invocationOnMock.getArgument(5)).setSuccess());
+
+        when(frameWriter.writeHeaders(any(ChannelHandlerContext.class), anyInt(),
+                any(Http2Headers.class), anyInt(), anyShort(), anyBoolean(), anyInt(), anyBoolean(),
+                any(ChannelPromise.class))).thenAnswer((Answer<ChannelFuture>) invocationOnMock ->
+                ((ChannelPromise) invocationOnMock.getArgument(8)).setSuccess());
+
+        when(frameWriter.writeData(any(ChannelHandlerContext.class), anyInt(), any(ByteBuf.class), anyInt(),
+                anyBoolean(), any(ChannelPromise.class))).thenAnswer(invocationOnMock -> {
+                    buffers.offer((ByteBuf) invocationOnMock.getArgument(2));
+                    return ((ChannelPromise) invocationOnMock.getArgument(5)).setSuccess();
+                });
+
+        when(frameWriter.writeRstStream(any(ChannelHandlerContext.class), anyInt(),
+                anyLong(), any(ChannelPromise.class))).thenAnswer((Answer<ChannelFuture>) invocationOnMock ->
+                ((ChannelPromise) invocationOnMock.getArgument(3)).setSuccess());
+
+        when(frameWriter.writeWindowUpdate(any(ChannelHandlerContext.class), anyInt(), anyInt(),
+                any(ChannelPromise.class))).then((Answer<ChannelFuture>) invocationOnMock ->
+                ((ChannelPromise) invocationOnMock.getArgument(3)).setSuccess());
+
+        when(frameWriter.writePushPromise(any(ChannelHandlerContext.class), anyInt(), anyInt(), any(Http2Headers.class),
+                anyInt(), anyChannelPromise())).thenAnswer((Answer<ChannelFuture>) invocationOnMock ->
+                ((ChannelPromise) invocationOnMock.getArgument(5)).setSuccess());
+
+        when(frameWriter.writeFrame(any(ChannelHandlerContext.class), anyByte(), anyInt(), any(Http2Flags.class),
+                any(ByteBuf.class), anyChannelPromise())).thenAnswer(invocationOnMock -> {
+                    buffers.offer((ByteBuf) invocationOnMock.getArgument(4));
+                    return ((ChannelPromise) invocationOnMock.getArgument(5)).setSuccess();
+                });
+        return frameWriter;
+    }
+
+    static ChannelPromise anyChannelPromise() {
+        return any(ChannelPromise.class);
+    }
+
+    static Http2Settings anyHttp2Settings() {
+        return any(Http2Settings.class);
+    }
+
+    static ByteBuf bb(String s) {
+        return ByteBufUtil.writeUtf8(UnpooledByteBufAllocator.DEFAULT, s);
+    }
+
+    static void assertEqualsAndRelease(Http2Frame expected, Http2Frame actual) {
+        try {
+            assertEquals(expected, actual);
+        } finally {
+            release(expected);
+            release(actual);
+            // Will return -1 when not implements ReferenceCounted.
+            assertTrue(ReferenceCountUtil.refCnt(expected) <= 0);
+            assertTrue(ReferenceCountUtil.refCnt(actual) <= 0);
+        }
+    }
+
 }

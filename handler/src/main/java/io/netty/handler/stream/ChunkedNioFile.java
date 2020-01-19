@@ -15,14 +15,17 @@
  */
 package io.netty.handler.stream;
 
+import static java.util.Objects.requireNonNull;
+
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.FileRegion;
 
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.RandomAccessFile;
+import java.nio.channels.ClosedChannelException;
 import java.nio.channels.FileChannel;
 
 /**
@@ -45,7 +48,7 @@ public class ChunkedNioFile implements ChunkedInput<ByteBuf> {
      * Creates a new instance that fetches data from the specified file.
      */
     public ChunkedNioFile(File in) throws IOException {
-        this(new FileInputStream(in).getChannel());
+        this(new RandomAccessFile(in, "r").getChannel());
     }
 
     /**
@@ -55,7 +58,7 @@ public class ChunkedNioFile implements ChunkedInput<ByteBuf> {
      *                  {@link #readChunk(ChannelHandlerContext)} call
      */
     public ChunkedNioFile(File in, int chunkSize) throws IOException {
-        this(new FileInputStream(in).getChannel(), chunkSize);
+        this(new RandomAccessFile(in, "r").getChannel(), chunkSize);
     }
 
     /**
@@ -83,11 +86,8 @@ public class ChunkedNioFile implements ChunkedInput<ByteBuf> {
      * @param chunkSize the number of bytes to fetch on each
      *                  {@link #readChunk(ChannelHandlerContext)} call
      */
-    public ChunkedNioFile(FileChannel in, long offset, long length, int chunkSize)
-            throws IOException {
-        if (in == null) {
-            throw new NullPointerException("in");
-        }
+    public ChunkedNioFile(FileChannel in, long offset, long length, int chunkSize) throws IOException {
+        requireNonNull(in, "in");
         if (offset < 0) {
             throw new IllegalArgumentException(
                     "offset: " + offset + " (expected: 0 or greater)");
@@ -101,9 +101,8 @@ public class ChunkedNioFile implements ChunkedInput<ByteBuf> {
                     "chunkSize: " + chunkSize +
                     " (expected: a positive integer)");
         }
-
-        if (offset != 0) {
-            in.position(offset);
+        if (!in.isOpen()) {
+            throw new ClosedChannelException();
         }
         this.in = in;
         this.chunkSize = chunkSize;
@@ -161,7 +160,7 @@ public class ChunkedNioFile implements ChunkedInput<ByteBuf> {
         try {
             int readBytes = 0;
             for (;;) {
-                int localReadBytes = buffer.writeBytes(in, chunkSize - readBytes);
+                int localReadBytes = buffer.writeBytes(in, offset + readBytes, chunkSize - readBytes);
                 if (localReadBytes < 0) {
                     break;
                 }

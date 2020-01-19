@@ -18,17 +18,15 @@ package io.netty.resolver.dns;
 import io.netty.channel.ChannelFuture;
 import io.netty.handler.codec.dns.DnsQuestion;
 import io.netty.handler.codec.dns.DnsResponseCode;
-import io.netty.util.internal.UnstableApi;
 
 import java.net.InetSocketAddress;
 import java.util.List;
 
-import static io.netty.util.internal.ObjectUtil.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Combines two {@link DnsQueryLifecycleObserver} into a single {@link DnsQueryLifecycleObserver}.
  */
-@UnstableApi
 public final class BiDnsQueryLifecycleObserver implements DnsQueryLifecycleObserver {
     private final DnsQueryLifecycleObserver a;
     private final DnsQueryLifecycleObserver b;
@@ -39,8 +37,8 @@ public final class BiDnsQueryLifecycleObserver implements DnsQueryLifecycleObser
      * @param b The {@link DnsQueryLifecycleObserver} that will receive events second.
      */
     public BiDnsQueryLifecycleObserver(DnsQueryLifecycleObserver a, DnsQueryLifecycleObserver b) {
-        this.a = checkNotNull(a, "a");
-        this.b = checkNotNull(b, "b");
+        this.a = requireNonNull(a, "a");
+        this.b = requireNonNull(b, "b");
     }
 
     @Override

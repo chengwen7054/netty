@@ -44,30 +44,24 @@ import static io.netty.util.AsciiString.CASE_SENSITIVE_HASHER;
  */
 public class DefaultHttpHeaders extends HttpHeaders {
     private static final int HIGHEST_INVALID_VALUE_CHAR_MASK = ~15;
-    private static final ByteProcessor HEADER_NAME_VALIDATOR = new ByteProcessor() {
-        @Override
-        public boolean process(byte value) throws Exception {
-            validateHeaderNameElement(value);
-            return true;
-        }
+    private static final ByteProcessor HEADER_NAME_VALIDATOR = value -> {
+        validateHeaderNameElement(value);
+        return true;
     };
-    static final NameValidator<CharSequence> HttpNameValidator = new NameValidator<CharSequence>() {
-        @Override
-        public void validateName(CharSequence name) {
-            if (name == null || name.length() == 0) {
-                throw new IllegalArgumentException("empty headers are not allowed [" + name + "]");
+    static final NameValidator<CharSequence> HttpNameValidator = name -> {
+        if (name == null || name.length() == 0) {
+            throw new IllegalArgumentException("empty headers are not allowed [" + name + "]");
+        }
+        if (name instanceof AsciiString) {
+            try {
+                ((AsciiString) name).forEachByte(HEADER_NAME_VALIDATOR);
+            } catch (Exception e) {
+                PlatformDependent.throwException(e);
             }
-            if (name instanceof AsciiString) {
-                try {
-                    ((AsciiString) name).forEachByte(HEADER_NAME_VALIDATOR);
-                } catch (Exception e) {
-                    PlatformDependent.throwException(e);
-                }
-            } else {
-                // Go through each character in the name
-                for (int index = 0; index < name.length(); ++index) {
-                    validateHeaderNameElement(name.charAt(index));
-                }
+        } else {
+            // Go through each character in the name
+            for (int index = 0; index < name.length(); ++index) {
+                validateHeaderNameElement(name.charAt(index));
             }
         }
     };
@@ -78,14 +72,26 @@ public class DefaultHttpHeaders extends HttpHeaders {
         this(true);
     }
 
+    /**
+     * <b>Warning!</b> Setting <code>validate</code> to <code>false</code> will mean that Netty won't
+     * validate & protect against user-supplied header values that are malicious.
+     * This can leave your server implementation vulnerable to
+     * <a href="https://cwe.mitre.org/data/definitions/113.html">
+     *     CWE-113: Improper Neutralization of CRLF Sequences in HTTP Headers ('HTTP Response Splitting')
+     * </a>.
+     * When disabling this validation, it is the responsibility of the caller to ensure that the values supplied
+     * do not contain a non-url-escaped carriage return (CR) and/or line feed (LF) characters.
+     *
+     * @param validate Should Netty validate Header values to ensure they aren't malicious.
+     */
     public DefaultHttpHeaders(boolean validate) {
         this(validate, nameValidator(validate));
     }
 
     protected DefaultHttpHeaders(boolean validate, NameValidator<CharSequence> nameValidator) {
-        this(new DefaultHeadersImpl<CharSequence, CharSequence>(CASE_INSENSITIVE_HASHER,
-                                                                valueConverter(validate),
-                                                                nameValidator));
+        this(new DefaultHeadersImpl<>(CASE_INSENSITIVE_HASHER,
+                valueConverter(validate),
+                nameValidator));
     }
 
     protected DefaultHttpHeaders(DefaultHeaders<CharSequence, CharSequence, ?> headers) {
@@ -257,7 +263,7 @@ public class DefaultHttpHeaders extends HttpHeaders {
         if (isEmpty()) {
             return Collections.emptyList();
         }
-        List<Entry<String, String>> entriesConverted = new ArrayList<Entry<String, String>>(
+        List<Entry<String, String>> entriesConverted = new ArrayList<>(
                 headers.size());
         for (Entry<String, String> entry : this) {
             entriesConverted.add(entry);
@@ -372,8 +378,7 @@ public class DefaultHttpHeaders extends HttpHeaders {
         default:
             // Check to see if the character is not an ASCII character, or invalid
             if (value < 0) {
-                throw new IllegalArgumentException("a header name cannot contain non-ASCII character: " +
-                        value);
+                throw new IllegalArgumentException("a header name cannot contain non-ASCII character: " + value);
             }
         }
     }

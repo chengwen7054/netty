@@ -17,8 +17,9 @@
 package io.netty.buffer;
 
 import io.netty.util.ByteProcessor;
-import io.netty.util.Recycler;
-import io.netty.util.Recycler.Handle;
+import io.netty.util.internal.ObjectPool;
+import io.netty.util.internal.ObjectPool.Handle;
+import io.netty.util.internal.ObjectPool.ObjectCreator;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -30,20 +31,18 @@ import java.nio.channels.ScatteringByteChannel;
 
 final class PooledDuplicatedByteBuf extends AbstractPooledDerivedByteBuf {
 
-    private static final Recycler<PooledDuplicatedByteBuf> RECYCLER = new Recycler<PooledDuplicatedByteBuf>() {
+    private static final ObjectPool<PooledDuplicatedByteBuf> RECYCLER = ObjectPool.newPool(
+            new ObjectCreator<PooledDuplicatedByteBuf>() {
         @Override
-        protected PooledDuplicatedByteBuf newObject(Handle<PooledDuplicatedByteBuf> handle) {
+        public PooledDuplicatedByteBuf newObject(Handle<PooledDuplicatedByteBuf> handle) {
             return new PooledDuplicatedByteBuf(handle);
         }
-    };
+    });
 
     static PooledDuplicatedByteBuf newInstance(AbstractByteBuf unwrapped, ByteBuf wrapped,
                                                int readerIndex, int writerIndex) {
         final PooledDuplicatedByteBuf duplicate = RECYCLER.get();
         duplicate.init(unwrapped, wrapped, readerIndex, writerIndex, unwrapped.maxCapacity());
-        duplicate.markReaderIndex();
-        duplicate.markWriterIndex();
-
         return duplicate;
     }
 

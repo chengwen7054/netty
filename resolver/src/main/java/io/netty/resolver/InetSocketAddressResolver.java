@@ -19,7 +19,6 @@ import io.netty.util.concurrent.EventExecutor;
 import io.netty.util.concurrent.Future;
 import io.netty.util.concurrent.FutureListener;
 import io.netty.util.concurrent.Promise;
-import io.netty.util.internal.UnstableApi;
 
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -29,7 +28,6 @@ import java.util.List;
 /**
  * A {@link AbstractAddressResolver} that resolves {@link InetSocketAddress}.
  */
-@UnstableApi
 public class InetSocketAddressResolver extends AbstractAddressResolver<InetSocketAddress> {
 
     final NameResolver<InetAddress> nameResolver;
@@ -55,14 +53,11 @@ public class InetSocketAddressResolver extends AbstractAddressResolver<InetSocke
         // Note that InetSocketAddress.getHostName() will never incur a reverse lookup here,
         // because an unresolved address always has a host name.
         nameResolver.resolve(unresolvedAddress.getHostName())
-                .addListener(new FutureListener<InetAddress>() {
-                    @Override
-                    public void operationComplete(Future<InetAddress> future) throws Exception {
-                        if (future.isSuccess()) {
-                            promise.setSuccess(new InetSocketAddress(future.getNow(), unresolvedAddress.getPort()));
-                        } else {
-                            promise.setFailure(future.cause());
-                        }
+                .addListener((FutureListener<InetAddress>) future -> {
+                    if (future.isSuccess()) {
+                        promise.setSuccess(new InetSocketAddress(future.getNow(), unresolvedAddress.getPort()));
+                    } else {
+                        promise.setFailure(future.cause());
                     }
                 });
     }
@@ -73,20 +68,17 @@ public class InetSocketAddressResolver extends AbstractAddressResolver<InetSocke
         // Note that InetSocketAddress.getHostName() will never incur a reverse lookup here,
         // because an unresolved address always has a host name.
         nameResolver.resolveAll(unresolvedAddress.getHostName())
-                .addListener(new FutureListener<List<InetAddress>>() {
-                    @Override
-                    public void operationComplete(Future<List<InetAddress>> future) throws Exception {
-                        if (future.isSuccess()) {
-                            List<InetAddress> inetAddresses = future.getNow();
-                            List<InetSocketAddress> socketAddresses =
-                                    new ArrayList<InetSocketAddress>(inetAddresses.size());
-                            for (InetAddress inetAddress : inetAddresses) {
-                                socketAddresses.add(new InetSocketAddress(inetAddress, unresolvedAddress.getPort()));
-                            }
-                            promise.setSuccess(socketAddresses);
-                        } else {
-                            promise.setFailure(future.cause());
+                .addListener((FutureListener<List<InetAddress>>) future -> {
+                    if (future.isSuccess()) {
+                        List<InetAddress> inetAddresses = future.getNow();
+                        List<InetSocketAddress> socketAddresses =
+                                new ArrayList<>(inetAddresses.size());
+                        for (InetAddress inetAddress : inetAddresses) {
+                            socketAddresses.add(new InetSocketAddress(inetAddress, unresolvedAddress.getPort()));
                         }
+                        promise.setSuccess(socketAddresses);
+                    } else {
+                        promise.setFailure(future.cause());
                     }
                 });
     }

@@ -15,10 +15,10 @@
  */
 package io.netty.handler.codec;
 
+import static io.netty.util.internal.ObjectUtil.checkPositive;
+
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
-
-import java.util.List;
 
 /**
  * A decoder that splits the received {@link ByteBuf}s by the fixed number
@@ -46,18 +46,15 @@ public class FixedLengthFrameDecoder extends ByteToMessageDecoder {
      * @param frameLength the length of the frame
      */
     public FixedLengthFrameDecoder(int frameLength) {
-        if (frameLength <= 0) {
-            throw new IllegalArgumentException(
-                    "frameLength must be a positive integer: " + frameLength);
-        }
+        checkPositive(frameLength, "frameLength");
         this.frameLength = frameLength;
     }
 
     @Override
-    protected final void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) throws Exception {
-        Object decoded = decode(ctx, in);
+    protected final void decode(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
+        Object decoded = decode0(ctx, in);
         if (decoded != null) {
-            out.add(decoded);
+            ctx.fireChannelRead(decoded);
         }
     }
 
@@ -69,7 +66,7 @@ public class FixedLengthFrameDecoder extends ByteToMessageDecoder {
      * @return  frame           the {@link ByteBuf} which represent the frame or {@code null} if no frame could
      *                          be created.
      */
-    protected Object decode(
+    protected Object decode0(
             @SuppressWarnings("UnusedParameters") ChannelHandlerContext ctx, ByteBuf in) throws Exception {
         if (in.readableBytes() < frameLength) {
             return null;

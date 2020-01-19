@@ -31,6 +31,21 @@
   <dependencies>
     <dependency>
       <groupId>${project.groupId}</groupId>
+      <artifactId>netty-common</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>${project.groupId}</groupId>
+      <artifactId>netty-buffer</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>${project.groupId}</groupId>
+      <artifactId>netty-transport</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>${project.groupId}</groupId>
       <artifactId>netty-transport-sctp</artifactId>
       <version>${project.version}</version>
     </dependency>
@@ -84,6 +99,7 @@
   <properties>
     <!-- Needed for SSL tests as these use the SelfSignedCertificate --> 
     <argLine.java9.extras>--add-exports java.base/sun.security.x509=ALL-UNNAMED</argLine.java9.extras>
+    <skipJapicmp>true</skipJapicmp>
   </properties>
 
   <build>

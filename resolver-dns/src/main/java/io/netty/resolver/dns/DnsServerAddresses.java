@@ -16,7 +16,7 @@
 
 package io.netty.resolver.dns;
 
-import io.netty.util.internal.UnstableApi;
+import static java.util.Objects.requireNonNull;
 
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
@@ -26,7 +26,6 @@ import java.util.List;
 /**
  * Provides an infinite sequence of DNS server addresses to {@link DnsNameResolver}.
  */
-@UnstableApi
 @SuppressWarnings("IteratorNextCanNotThrowNoSuchElementException")
 public abstract class DnsServerAddresses {
     /**
@@ -149,9 +148,7 @@ public abstract class DnsServerAddresses {
      * Returns the {@link DnsServerAddresses} that yields only a single {@code address}.
      */
     public static DnsServerAddresses singleton(final InetSocketAddress address) {
-        if (address == null) {
-            throw new NullPointerException("address");
-        }
+        requireNonNull(address, "address");
         if (address.isUnresolved()) {
             throw new IllegalArgumentException("cannot use an unresolved DNS server address: " + address);
         }
@@ -160,15 +157,13 @@ public abstract class DnsServerAddresses {
     }
 
     private static List<InetSocketAddress> sanitize(Iterable<? extends InetSocketAddress> addresses) {
-        if (addresses == null) {
-            throw new NullPointerException("addresses");
-        }
+        requireNonNull(addresses, "addresses");
 
         final List<InetSocketAddress> list;
         if (addresses instanceof Collection) {
-            list = new ArrayList<InetSocketAddress>(((Collection<?>) addresses).size());
+            list = new ArrayList<>(((Collection<?>) addresses).size());
         } else {
-            list = new ArrayList<InetSocketAddress>(4);
+            list = new ArrayList<>(4);
         }
 
         for (InetSocketAddress a : addresses) {
@@ -189,11 +184,9 @@ public abstract class DnsServerAddresses {
     }
 
     private static List<InetSocketAddress> sanitize(InetSocketAddress[] addresses) {
-        if (addresses == null) {
-            throw new NullPointerException("addresses");
-        }
+        requireNonNull(addresses, "addresses");
 
-        List<InetSocketAddress> list = new ArrayList<InetSocketAddress>(addresses.length);
+        List<InetSocketAddress> list = new ArrayList<>(addresses.length);
         for (InetSocketAddress a: addresses) {
             if (a == null) {
                 break;

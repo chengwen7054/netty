@@ -15,6 +15,8 @@
  */
 package io.netty.handler.codec.http.multipart;
 
+import static java.util.Objects.requireNonNull;
+
 import io.netty.handler.codec.DecoderException;
 import io.netty.handler.codec.http.HttpConstants;
 import io.netty.handler.codec.http.HttpContent;
@@ -83,15 +85,9 @@ public class HttpPostRequestDecoder implements InterfaceHttpPostRequestDecoder {
      *             errors
      */
     public HttpPostRequestDecoder(HttpDataFactory factory, HttpRequest request, Charset charset) {
-        if (factory == null) {
-            throw new NullPointerException("factory");
-        }
-        if (request == null) {
-            throw new NullPointerException("request");
-        }
-        if (charset == null) {
-            throw new NullPointerException("charset");
-        }
+        requireNonNull(factory, "factory");
+        requireNonNull(request, "request");
+        requireNonNull(charset, "charset");
         // Fill default values
         if (isMultipart(request)) {
             decoder = new HttpPostMultipartRequestDecoder(factory, request, charset);
@@ -140,11 +136,11 @@ public class HttpPostRequestDecoder implements InterfaceHttpPostRequestDecoder {
      * @return True if the request is a Multipart request
      */
     public static boolean isMultipart(HttpRequest request) {
-        if (request.headers().contains(HttpHeaderNames.CONTENT_TYPE)) {
-            return getMultipartDataBoundary(request.headers().get(HttpHeaderNames.CONTENT_TYPE)) != null;
-        } else {
-            return false;
+        String mimeType = request.headers().get(HttpHeaderNames.CONTENT_TYPE);
+        if (mimeType != null && mimeType.startsWith(HttpHeaderValues.MULTIPART_FORM_DATA.toString())) {
+            return getMultipartDataBoundary(mimeType) != null;
         }
+        return false;
     }
 
     /**

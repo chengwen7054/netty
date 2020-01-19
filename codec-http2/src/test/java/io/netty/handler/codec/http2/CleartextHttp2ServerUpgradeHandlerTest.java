@@ -18,8 +18,8 @@ package io.netty.handler.codec.http2;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
+import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
-import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.embedded.EmbeddedChannel;
 import io.netty.handler.codec.http.DefaultHttpHeaders;
@@ -27,7 +27,6 @@ import io.netty.handler.codec.http.HttpMethod;
 import io.netty.handler.codec.http.HttpRequest;
 import io.netty.handler.codec.http.HttpServerCodec;
 import io.netty.handler.codec.http.HttpServerUpgradeHandler;
-import io.netty.handler.codec.http.HttpServerUpgradeHandler.UpgradeCodec;
 import io.netty.handler.codec.http.HttpServerUpgradeHandler.UpgradeCodecFactory;
 import io.netty.handler.codec.http.HttpServerUpgradeHandler.UpgradeEvent;
 import io.netty.handler.codec.http.HttpVersion;
@@ -42,8 +41,15 @@ import org.junit.Test;
 import java.util.ArrayList;
 import java.util.List;
 
-import static org.junit.Assert.*;
-import static org.mockito.Mockito.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
+import static org.mockito.Mockito.any;
+import static org.mockito.Mockito.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 
 /**
  * Tests for {@link CleartextHttp2ServerUpgradeHandler}
@@ -63,21 +69,16 @@ public class CleartextHttp2ServerUpgradeHandlerTest {
         http2ConnectionHandler = new Http2ConnectionHandlerBuilder()
                 .frameListener(frameListener).build();
 
-        UpgradeCodecFactory upgradeCodecFactory = new UpgradeCodecFactory() {
-            @Override
-            public UpgradeCodec newUpgradeCodec(CharSequence protocol) {
-                return new Http2ServerUpgradeCodec(http2ConnectionHandler);
-            }
-        };
+        UpgradeCodecFactory upgradeCodecFactory = protocol -> new Http2ServerUpgradeCodec(http2ConnectionHandler);
 
-        userEvents = new ArrayList<Object>();
+        userEvents = new ArrayList<>();
 
         HttpServerCodec httpServerCodec = new HttpServerCodec();
         HttpServerUpgradeHandler upgradeHandler = new HttpServerUpgradeHandler(httpServerCodec, upgradeCodecFactory);
 
         CleartextHttp2ServerUpgradeHandler handler = new CleartextHttp2ServerUpgradeHandler(
                 httpServerCodec, upgradeHandler, http2ConnectionHandler);
-        channel = new EmbeddedChannel(handler, new ChannelInboundHandlerAdapter() {
+        channel = new EmbeddedChannel(handler, new ChannelHandler() {
             @Override
             public void userEventTriggered(ChannelHandlerContext ctx, Object evt) throws Exception {
                 userEvents.add(evt);
@@ -112,47 +113,35 @@ public class CleartextHttp2ServerUpgradeHandlerTest {
 
     @Test
     public void upgrade() throws Exception {
-        setUpServerChannel();
-
         String upgradeString = "GET / HTTP/1.1\r\n" +
-                               "Host: example.com\r\n" +
-                               "Connection: Upgrade, HTTP2-Settings\r\n" +
-                               "Upgrade: h2c\r\n" +
-                               "HTTP2-Settings: AAMAAABkAAQAAP__\r\n\r\n";
-        ByteBuf upgrade = Unpooled.copiedBuffer(upgradeString, CharsetUtil.US_ASCII);
+                "Host: example.com\r\n" +
+                "Connection: Upgrade, HTTP2-Settings\r\n" +
+                "Upgrade: h2c\r\n" +
+                "HTTP2-Settings: AAMAAABkAAQAAP__\r\n\r\n";
+        validateClearTextUpgrade(upgradeString);
+    }
 
-        assertFalse(channel.writeInbound(upgrade));
+    @Test
+    public void upgradeWithMultipleConnectionHeaders() {
+        String upgradeString = "GET / HTTP/1.1\r\n" +
+                "Host: example.com\r\n" +
+                "Connection: keep-alive\r\n" +
+                "Connection: Upgrade, HTTP2-Settings\r\n" +
+                "Upgrade: h2c\r\n" +
+                "HTTP2-Settings: AAMAAABkAAQAAP__\r\n\r\n";
+        validateClearTextUpgrade(upgradeString);
+    }
 
-        assertEquals(1, userEvents.size());
-
-        Object userEvent = userEvents.get(0);
-        assertTrue(userEvent instanceof UpgradeEvent);
-        assertEquals("h2c", ((UpgradeEvent) userEvent).protocol());
-        ReferenceCountUtil.release(userEvent);
-
-        assertEquals(100, http2ConnectionHandler.connection().local().maxActiveStreams());
-        assertEquals(65535, http2ConnectionHandler.connection().local().flowController().initialWindowSize());
-
-        assertEquals(1, http2ConnectionHandler.connection().numActiveStreams());
-        assertNotNull(http2ConnectionHandler.connection().stream(1));
-
-        Http2Stream stream = http2ConnectionHandler.connection().stream(1);
-        assertEquals(State.HALF_CLOSED_REMOTE, stream.state());
-        assertFalse(stream.isHeadersSent());
-
-        String expectedHttpResponse = "HTTP/1.1 101 Switching Protocols\r\n" +
-                "connection: upgrade\r\n" +
-                "upgrade: h2c\r\n\r\n";
-        ByteBuf responseBuffer = channel.readOutbound();
-        assertEquals(expectedHttpResponse, responseBuffer.toString(CharsetUtil.UTF_8));
-        responseBuffer.release();
-
-        // Check that the preface was send (a.k.a the settings frame)
-        ByteBuf settingsBuffer = channel.readOutbound();
-        assertNotNull(settingsBuffer);
-        settingsBuffer.release();
-
-        assertNull(channel.readOutbound());
+    @Test
+    public void requiredHeadersInSeparateConnectionHeaders() {
+        String upgradeString = "GET / HTTP/1.1\r\n" +
+                "Host: example.com\r\n" +
+                "Connection: keep-alive\r\n" +
+                "Connection: HTTP2-Settings\r\n" +
+                "Connection: Upgrade\r\n" +
+                "Upgrade: h2c\r\n" +
+                "HTTP2-Settings: AAMAAABkAAQAAP__\r\n\r\n";
+        validateClearTextUpgrade(upgradeString);
     }
 
     @Test
@@ -205,22 +194,17 @@ public class CleartextHttp2ServerUpgradeHandlerTest {
             protected void initChannel(Channel ch) throws Exception {
             }
         }).build();
-        UpgradeCodecFactory upgradeCodecFactory = new UpgradeCodecFactory() {
-            @Override
-            public UpgradeCodec newUpgradeCodec(CharSequence protocol) {
-                return new Http2ServerUpgradeCodec(http2Codec);
-            }
-        };
+        UpgradeCodecFactory upgradeCodecFactory = protocol -> new Http2ServerUpgradeCodec(http2Codec);
         http2ConnectionHandler = http2Codec;
 
-        userEvents = new ArrayList<Object>();
+        userEvents = new ArrayList<>();
 
         HttpServerCodec httpServerCodec = new HttpServerCodec();
         HttpServerUpgradeHandler upgradeHandler = new HttpServerUpgradeHandler(httpServerCodec, upgradeCodecFactory);
 
         CleartextHttp2ServerUpgradeHandler handler = new CleartextHttp2ServerUpgradeHandler(
                 httpServerCodec, upgradeHandler, http2Codec);
-        channel = new EmbeddedChannel(handler, new ChannelInboundHandlerAdapter() {
+        channel = new EmbeddedChannel(handler, new ChannelHandler() {
             @Override
             public void userEventTriggered(ChannelHandlerContext ctx, Object evt) throws Exception {
                 userEvents.add(evt);
@@ -253,5 +237,44 @@ public class CleartextHttp2ServerUpgradeHandlerTest {
 
     private static Http2Settings expectedSettings() {
         return new Http2Settings().maxConcurrentStreams(100).initialWindowSize(65535);
+    }
+
+    private void validateClearTextUpgrade(String upgradeString) {
+        setUpServerChannel();
+
+        ByteBuf upgrade = Unpooled.copiedBuffer(upgradeString, CharsetUtil.US_ASCII);
+
+        assertFalse(channel.writeInbound(upgrade));
+
+        assertEquals(1, userEvents.size());
+
+        Object userEvent = userEvents.get(0);
+        assertTrue(userEvent instanceof UpgradeEvent);
+        assertEquals("h2c", ((UpgradeEvent) userEvent).protocol());
+        ReferenceCountUtil.release(userEvent);
+
+        assertEquals(100, http2ConnectionHandler.connection().local().maxActiveStreams());
+        assertEquals(65535, http2ConnectionHandler.connection().local().flowController().initialWindowSize());
+
+        assertEquals(1, http2ConnectionHandler.connection().numActiveStreams());
+        assertNotNull(http2ConnectionHandler.connection().stream(1));
+
+        Http2Stream stream = http2ConnectionHandler.connection().stream(1);
+        assertEquals(State.HALF_CLOSED_REMOTE, stream.state());
+        assertFalse(stream.isHeadersSent());
+
+        String expectedHttpResponse = "HTTP/1.1 101 Switching Protocols\r\n" +
+                "connection: upgrade\r\n" +
+                "upgrade: h2c\r\n\r\n";
+        ByteBuf responseBuffer = channel.readOutbound();
+        assertEquals(expectedHttpResponse, responseBuffer.toString(CharsetUtil.UTF_8));
+        responseBuffer.release();
+
+        // Check that the preface was send (a.k.a the settings frame)
+        ByteBuf settingsBuffer = channel.readOutbound();
+        assertNotNull(settingsBuffer);
+        settingsBuffer.release();
+
+        assertNull(channel.readOutbound());
     }
 }
